@@ -26,7 +26,7 @@
     }
 
     .container {
-      max-width: 1400px;
+      max-width: 1500px;
       margin: 0 auto;
       padding: 20px;
     }
@@ -128,6 +128,10 @@
       background: #252f3c;
     }
 
+    .button-recommend {
+      background: #684dff;
+    }
+
     .button-danger {
       background: #3a2025;
       color: #ff8f9b;
@@ -145,7 +149,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1350px;
+      min-width: 1650px;
     }
 
     th {
@@ -217,6 +221,21 @@
     .weight-fill {
       height: 100%;
       background: #4d7cff;
+      border-radius: 10px;
+    }
+
+    .recommend-bar {
+      width: 100px;
+      height: 6px;
+      background: #252e3a;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-left: auto;
+    }
+
+    .recommend-fill {
+      height: 100%;
+      background: #8b6cff;
       border-radius: 10px;
     }
 
@@ -297,6 +316,34 @@
     }
 
     .target-total strong {
+      color: #fff;
+    }
+
+    .recommend-score {
+      font-weight: 800;
+    }
+
+    .recommend-reason {
+      color: #8994a3;
+      font-size: 10px;
+      margin-top: 4px;
+      max-width: 150px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .recommend-info {
+      background: #171e27;
+      border: 1px solid #283241;
+      border-radius: 10px;
+      padding: 12px;
+      color: #aab3bf;
+      font-size: 12px;
+      line-height: 1.6;
+      margin-top: 12px;
+    }
+
+    .recommend-info strong {
       color: #fff;
     }
 
@@ -381,7 +428,7 @@
       브라우저의 LocalStorage에 저장합니다.
 
       무료 API의 요청 제한을 고려하여
-      시세와 회사명 데이터는 캐시합니다.
+      시세와 회사명 및 재무 데이터는 캐시합니다.
 
     </div>
 
@@ -538,6 +585,8 @@
             <th>손익</th>
             <th>수익률</th>
             <th>현재비중</th>
+            <th>추천점수</th>
+            <th>추천비중</th>
             <th>목표비중</th>
             <th>비중차이</th>
             <th>목표금액</th>
@@ -561,6 +610,52 @@
       class="target-total"
     >
       목표 비중 합계: <strong>0.00%</strong>
+    </div>
+
+    <div class="recommend-info">
+
+      <strong>추천 비중 엔진</strong><br>
+
+      성장성 35% + 수익성 25% + 기업규모 15% +
+      위험도 15% + 밸류에이션 10%를 이용해
+      종목별 점수를 계산합니다.
+
+      추천비중은 점수를 기준으로 자동 배분하며,
+      현재 단계에서는 규칙 기반 참고값입니다.
+
+      <br><br>
+
+      <strong>추천비중 적용</strong>을 누르면
+      추천비중이 목표비중으로 복사되고,
+      기존 추가매수/매도 금액 계산에 바로 반영됩니다.
+
+    </div>
+
+  </div>
+
+
+  <!-- 추천 비중 -->
+
+  <div class="card">
+
+    <div class="card-title">
+      🧠 추천 비중 계산
+    </div>
+
+    <button
+      id="recommendButton"
+      class="button-recommend"
+      onclick="calculateRecommendedWeights()"
+      style="width:100%;"
+    >
+      🧠 재무데이터 기반 추천 비중 계산
+    </button>
+
+    <div
+      id="recommendStatus"
+      class="status"
+    >
+      아직 추천 비중을 계산하지 않았습니다.
     </div>
 
   </div>
@@ -601,10 +696,15 @@
   const PRICE_CACHE_KEY =
     "portfolio_manager_price_cache_v2";
 
+  const FUNDAMENTAL_CACHE_KEY =
+    "portfolio_manager_fundamental_cache_v1";
+
 
   let holdings = [];
 
   let priceCache = {};
+
+  let fundamentalCache = {};
 
 
   /* =========================================================
@@ -618,6 +718,8 @@
     loadApiKey();
 
     loadPriceCache();
+
+    loadFundamentalCache();
 
     renderPortfolio();
 
@@ -690,16 +792,26 @@
           updatedAt:
             item.updatedAt || null,
 
-          /*
-            새로 추가된 목표 비중.
-            기존 종목은 기본값 0%.
-          */
-
           targetWeight:
             item.targetWeight !== undefined &&
             item.targetWeight !== null
               ? Number(item.targetWeight)
-              : 0
+              : 0,
+
+          recommendedWeight:
+            item.recommendedWeight !== undefined &&
+            item.recommendedWeight !== null
+              ? Number(item.recommendedWeight)
+              : null,
+
+          recommendationScore:
+            item.recommendationScore !== undefined &&
+            item.recommendationScore !== null
+              ? Number(item.recommendationScore)
+              : null,
+
+          recommendationReason:
+            item.recommendationReason || ""
 
         }));
 
@@ -771,6 +883,41 @@
     } catch (error) {
 
       priceCache = {};
+
+    }
+
+  }
+
+
+  /* =========================================================
+     재무 데이터 캐시 불러오기
+  ========================================================= */
+
+  function loadFundamentalCache() {
+
+    const saved =
+      localStorage.getItem(
+        FUNDAMENTAL_CACHE_KEY
+      );
+
+
+    if (!saved) {
+
+      fundamentalCache = {};
+
+      return;
+
+    }
+
+
+    try {
+
+      fundamentalCache =
+        JSON.parse(saved);
+
+    } catch (error) {
+
+      fundamentalCache = {};
 
     }
 
@@ -990,7 +1137,16 @@
             null,
 
           targetWeight:
-            0
+            0,
+
+          recommendedWeight:
+            null,
+
+          recommendationScore:
+            null,
+
+          recommendationReason:
+            ""
 
         });
 
@@ -1164,10 +1320,6 @@
     }
 
 
-    /*
-      100%를 초과하지 않도록 제한
-    */
-
     if (target > 100) {
 
       target = 100;
@@ -1191,6 +1343,106 @@
 
     item.targetWeight =
       target;
+
+
+    saveHoldings();
+
+    renderPortfolio();
+
+  }
+
+
+  /* =========================================================
+     추천 비중을 목표 비중으로 적용
+  ========================================================= */
+
+  function applyRecommendedWeight(
+    ticker
+  ) {
+
+    const item =
+      holdings.find(
+        holding =>
+          holding.ticker === ticker
+      );
+
+
+    if (!item) {
+
+      return;
+
+    }
+
+
+    if (
+      item.recommendedWeight === null ||
+      item.recommendedWeight === undefined
+    ) {
+
+      return;
+
+    }
+
+
+    item.targetWeight =
+      item.recommendedWeight;
+
+
+    saveHoldings();
+
+    renderPortfolio();
+
+  }
+
+
+  /* =========================================================
+     전체 추천 비중을 목표 비중으로 적용
+  ========================================================= */
+
+  function applyAllRecommendedWeights() {
+
+    const valid =
+      holdings.filter(
+        item =>
+          item.recommendedWeight !== null &&
+          item.recommendedWeight !== undefined
+      );
+
+
+    if (
+      valid.length === 0
+    ) {
+
+      alert(
+        "먼저 추천 비중을 계산하세요."
+      );
+
+      return;
+
+    }
+
+
+    const confirmed =
+      confirm(
+        "계산된 추천 비중을 모두 목표 비중으로 적용하시겠습니까?"
+      );
+
+
+    if (!confirmed) {
+
+      return;
+
+    }
+
+
+    valid.forEach(
+      item => {
+
+        item.targetWeight =
+          item.recommendedWeight;
+
+      }
+    );
 
 
     saveHoldings();
@@ -1346,7 +1598,7 @@
 
         <tr>
 
-          <td colspan="13">
+          <td colspan="15">
 
             <div class="empty">
               아직 등록된 종목이 없습니다.
@@ -1434,6 +1686,17 @@
             ) || 0;
 
 
+          const recommendedWeight =
+            item.recommendedWeight !== null &&
+            item.recommendedWeight !== undefined
+
+              ? Number(
+                  item.recommendedWeight
+                )
+
+              : null;
+
+
           const weightDifference =
             targetWeight -
             weight;
@@ -1502,6 +1765,35 @@
 
             rebalanceClass =
               "rebalance-reduce";
+
+          }
+
+
+          const score =
+            item.recommendationScore;
+
+
+          let scoreClass =
+            "neutral";
+
+
+          if (
+            score !== null &&
+            score >= 70
+          ) {
+
+            scoreClass =
+              "positive";
+
+          }
+
+          else if (
+            score !== null &&
+            score < 50
+          ) {
+
+            scoreClass =
+              "negative";
 
           }
 
@@ -1619,6 +1911,82 @@
                   </div>
 
                 </div>
+
+              </td>
+
+
+              <td>
+
+                ${
+                  score !== null
+
+                    ? `
+
+                      <div class="recommend-score ${scoreClass}">
+                        ${score.toFixed(1)}
+                      </div>
+
+                      <div class="recommend-reason">
+                        ${escapeHtml(
+                          item.recommendationReason ||
+                          ""
+                        )}
+                      </div>
+
+                    `
+
+                    : "-"
+                }
+
+              </td>
+
+
+              <td>
+
+                ${
+                  recommendedWeight !== null
+
+                    ? `
+
+                      <div class="weight-number">
+                        ${percent(
+                          recommendedWeight
+                        )}
+                      </div>
+
+                      <div class="recommend-bar">
+
+                        <div
+                          class="recommend-fill"
+                          style="
+                            width:${Math.min(
+                              recommendedWeight,
+                              100
+                            )}%
+                          "
+                        ></div>
+
+                      </div>
+
+                      <button
+                        class="button-secondary button-small"
+                        style="margin-top:6px;"
+                        onclick="
+                          applyRecommendedWeight(
+                            '${escapeHtml(
+                              item.ticker
+                            )}'
+                          )
+                        "
+                      >
+                        적용
+                      </button>
+
+                    `
+
+                    : "-"
+
+                }
 
               </td>
 
@@ -1886,6 +2254,1213 @@
 
             : "neutral"
       );
+
+  }
+
+
+  /* =========================================================
+     재무 데이터 조회
+  ========================================================= */
+
+  async function getFundamentals(
+    ticker
+  ) {
+
+    const cached =
+      fundamentalCache[
+        ticker
+      ];
+
+
+    /*
+      재무 데이터는 7일 동안 캐시.
+      매번 API를 호출하지 않도록 함.
+    */
+
+    if (
+      cached &&
+      cached.savedAt
+    ) {
+
+      const age =
+        Date.now() -
+        new Date(
+          cached.savedAt
+        ).getTime();
+
+
+      const sevenDays =
+        7 *
+        24 *
+        60 *
+        60 *
+        1000;
+
+
+      if (
+        age < sevenDays &&
+        cached.data
+      ) {
+
+        return cached.data;
+
+      }
+
+    }
+
+
+    const apiKey =
+      localStorage.getItem(
+        API_KEY_STORAGE
+      );
+
+
+    if (!apiKey) {
+
+      throw new Error(
+        "Alpha Vantage API Key가 없습니다."
+      );
+
+    }
+
+
+    const url =
+      "https://www.alphavantage.co/query" +
+      "?function=OVERVIEW" +
+      "&symbol=" +
+      encodeURIComponent(ticker) +
+      "&apikey=" +
+      encodeURIComponent(apiKey);
+
+
+    const response =
+      await fetch(url);
+
+
+    if (!response.ok) {
+
+      throw new Error(
+        "재무 데이터 API 오류: " +
+        response.status
+      );
+
+    }
+
+
+    const data =
+      await response.json();
+
+
+    if (
+      data["Note"]
+    ) {
+
+      throw new Error(
+        "Alpha Vantage API 요청 제한"
+      );
+
+    }
+
+
+    if (
+      data["Error Message"]
+    ) {
+
+      throw new Error(
+        ticker +
+        ": 재무 데이터를 찾을 수 없습니다."
+      );
+
+    }
+
+
+    if (
+      !data ||
+      Object.keys(data).length === 0
+    ) {
+
+      throw new Error(
+        ticker +
+        ": 재무 데이터가 없습니다."
+      );
+
+    }
+
+
+    fundamentalCache[
+      ticker
+    ] = {
+
+      savedAt:
+        new Date()
+        .toISOString(),
+
+      data:
+        data
+
+    };
+
+
+    localStorage.setItem(
+      FUNDAMENTAL_CACHE_KEY,
+      JSON.stringify(
+        fundamentalCache
+      )
+    );
+
+
+    return data;
+
+  }
+
+
+  /* =========================================================
+     숫자 변환
+  ========================================================= */
+
+  function safeNumber(
+    value
+  ) {
+
+    const number =
+      Number(value);
+
+
+    if (
+      Number.isFinite(
+        number
+      )
+    ) {
+
+      return number;
+
+    }
+
+
+    return null;
+
+  }
+
+
+  /* =========================================================
+     0~100 범위 제한
+  ========================================================= */
+
+  function clamp(
+    value,
+    min,
+    max
+  ) {
+
+    return Math.min(
+      Math.max(
+        value,
+        min
+      ),
+      max
+    );
+
+  }
+
+
+  /* =========================================================
+     성장성 점수
+     35점
+  ========================================================= */
+
+  function growthScore(
+    data
+  ) {
+
+    let score = 17.5;
+
+
+    const revenueGrowth =
+      safeNumber(
+        data[
+          "QuarterlyRevenueGrowthYOY"
+        ]
+      );
+
+
+    const earningsGrowth =
+      safeNumber(
+        data[
+          "QuarterlyEarningsGrowthYOY"
+        ]
+      );
+
+
+    /*
+      매출 성장 최대 17.5점
+    */
+
+    if (
+      revenueGrowth !== null
+    ) {
+
+      score +=
+        clamp(
+          revenueGrowth,
+          -20,
+          30
+        ) *
+        (
+          17.5 /
+          50
+        );
+
+    }
+
+
+    /*
+      위 계산의 기준점을 조정하여
+      0% 성장 부근에서 중립점이 되도록 함.
+    */
+
+    let revenuePart =
+      8.75;
+
+
+    if (
+      revenueGrowth !== null
+    ) {
+
+      revenuePart =
+        clamp(
+          8.75 +
+          revenueGrowth *
+          0.2917,
+          0,
+          17.5
+        );
+
+    }
+
+
+    let earningsPart =
+      8.75;
+
+
+    if (
+      earningsGrowth !== null
+    ) {
+
+      earningsPart =
+        clamp(
+          8.75 +
+          earningsGrowth *
+          0.2917,
+          0,
+          17.5
+        );
+
+    }
+
+
+    return clamp(
+      revenuePart +
+      earningsPart,
+      0,
+      35
+    );
+
+  }
+
+
+  /* =========================================================
+     수익성 점수
+     25점
+  ========================================================= */
+
+  function profitabilityScore(
+    data
+  ) {
+
+    let operatingPart =
+      12.5;
+
+
+    let roePart =
+      12.5;
+
+
+    const operatingMargin =
+      safeNumber(
+        data[
+          "OperatingMarginTTM"
+        ]
+      );
+
+
+    const roe =
+      safeNumber(
+        data[
+          "ReturnOnEquityTTM"
+        ]
+      );
+
+
+    if (
+      operatingMargin !== null
+    ) {
+
+      operatingPart =
+        clamp(
+          operatingMargin *
+          100 /
+          40 *
+          12.5,
+          0,
+          12.5
+        );
+
+    }
+
+
+    if (
+      roe !== null
+    ) {
+
+      roePart =
+        clamp(
+          (
+            roe *
+            100
+          ) /
+          50 *
+          12.5,
+          0,
+          12.5
+        );
+
+    }
+
+
+    return clamp(
+      operatingPart +
+      roePart,
+      0,
+      25
+    );
+
+  }
+
+
+  /* =========================================================
+     기업 규모 점수
+     15점
+  ========================================================= */
+
+  function sizeScore(
+    data
+  ) {
+
+    const marketCap =
+      safeNumber(
+        data[
+          "MarketCapitalization"
+        ]
+      );
+
+
+    if (
+      marketCap === null ||
+      marketCap <= 0
+    ) {
+
+      return 7.5;
+
+    }
+
+
+    /*
+      시가총액 기준:
+      1T 이상 = 15
+      500B = 13
+      100B = 10
+      10B = 6
+      1B 이하 = 3
+    */
+
+    if (
+      marketCap >=
+      1000000000000
+    ) {
+
+      return 15;
+
+    }
+
+
+    if (
+      marketCap >=
+      500000000000
+    ) {
+
+      return 13;
+
+    }
+
+
+    if (
+      marketCap >=
+      100000000000
+    ) {
+
+      return 10;
+
+    }
+
+
+    if (
+      marketCap >=
+      10000000000
+    ) {
+
+      return 6;
+
+    }
+
+
+    return 3;
+
+  }
+
+
+  /* =========================================================
+     위험도 점수
+     15점
+  ========================================================= */
+
+  function riskScore(
+    data
+  ) {
+
+    const beta =
+      safeNumber(
+        data[
+          "Beta"
+        ]
+      );
+
+
+    if (
+      beta === null
+    ) {
+
+      return 7.5;
+
+    }
+
+
+    /*
+      Beta가 낮을수록 점수 높음.
+    */
+
+    if (
+      beta <= 0.7
+    ) {
+
+      return 15;
+
+    }
+
+
+    if (
+      beta <= 1.0
+    ) {
+
+      return 13;
+
+    }
+
+
+    if (
+      beta <= 1.3
+    ) {
+
+      return 10;
+
+    }
+
+
+    if (
+      beta <= 1.7
+    ) {
+
+      return 7;
+
+    }
+
+
+    if (
+      beta <= 2.2
+    ) {
+
+      return 4;
+
+    }
+
+
+    return 2;
+
+  }
+
+
+  /* =========================================================
+     밸류에이션 점수
+     10점
+  ========================================================= */
+
+  function valuationScore(
+    data
+  ) {
+
+    const peg =
+      safeNumber(
+        data[
+          "PEGRatio"
+        ]
+      );
+
+
+    if (
+      peg === null ||
+      peg <= 0
+    ) {
+
+      return 5;
+
+    }
+
+
+    if (
+      peg <= 0.8
+    ) {
+
+      return 10;
+
+    }
+
+
+    if (
+      peg <= 1.2
+    ) {
+
+      return 8;
+
+    }
+
+
+    if (
+      peg <= 1.8
+    ) {
+
+      return 6;
+
+    }
+
+
+    if (
+      peg <= 2.5
+    ) {
+
+      return 4;
+
+    }
+
+
+    return 2;
+
+  }
+
+
+  /* =========================================================
+     추천 점수 계산
+  ========================================================= */
+
+  function calculateRecommendationScore(
+    data
+  ) {
+
+    const growth =
+      growthScore(
+        data
+      );
+
+
+    const profitability =
+      profitabilityScore(
+        data
+      );
+
+
+    const size =
+      sizeScore(
+        data
+      );
+
+
+    const risk =
+      riskScore(
+        data
+      );
+
+
+    const valuation =
+      valuationScore(
+        data
+      );
+
+
+    const total =
+      growth +
+      profitability +
+      size +
+      risk +
+      valuation;
+
+
+    return {
+
+      score:
+        clamp(
+          total,
+          0,
+          100
+        ),
+
+      growth:
+        growth,
+
+      profitability:
+        profitability,
+
+      size:
+        size,
+
+      risk:
+        risk,
+
+      valuation:
+        valuation
+
+    };
+
+  }
+
+
+  /* =========================================================
+     추천 점수 → 비중 변환
+  ========================================================= */
+
+  function convertScoresToWeights(
+    scoredItems
+  ) {
+
+    if (
+      scoredItems.length === 0
+    ) {
+
+      return;
+
+    }
+
+
+    /*
+      모든 종목의 점수가 같으면
+      동일 비중으로 배분.
+    */
+
+    const totalScore =
+      scoredItems.reduce(
+        (
+          sum,
+          item
+        ) =>
+          sum +
+          item.score,
+        0
+      );
+
+
+    if (
+      totalScore <= 0
+    ) {
+
+      const equal =
+        100 /
+        scoredItems.length;
+
+
+      scoredItems.forEach(
+        item => {
+
+          item.weight =
+            equal;
+
+        }
+      );
+
+
+      return;
+
+    }
+
+
+    /*
+      점수 비례 배분.
+    */
+
+    scoredItems.forEach(
+      item => {
+
+        item.weight =
+          (
+            item.score /
+            totalScore
+          ) *
+          100;
+
+      }
+    );
+
+
+    /*
+      한 종목이 지나치게 큰 비중을
+      차지하지 않도록 최대 30%.
+    */
+
+    const MAX_WEIGHT = 30;
+
+
+    let excess = 0;
+
+
+    scoredItems.forEach(
+      item => {
+
+        if (
+          item.weight >
+          MAX_WEIGHT
+        ) {
+
+          excess +=
+            item.weight -
+            MAX_WEIGHT;
+
+          item.weight =
+            MAX_WEIGHT;
+
+        }
+
+      }
+    );
+
+
+    /*
+      상한에 걸리지 않은 종목에
+      초과분 재분배.
+    */
+
+    if (
+      excess > 0
+    ) {
+
+      const available =
+        scoredItems.filter(
+          item =>
+            item.weight <
+            MAX_WEIGHT
+        );
+
+
+      if (
+        available.length > 0
+      ) {
+
+        const availableScore =
+          available.reduce(
+            (
+              sum,
+              item
+            ) =>
+              sum +
+              item.score,
+            0
+          );
+
+
+        available.forEach(
+          item => {
+
+            const add =
+              availableScore > 0
+
+                ? excess *
+                  (
+                    item.score /
+                    availableScore
+                  )
+
+                : excess /
+                  available.length;
+
+
+            item.weight =
+              Math.min(
+                MAX_WEIGHT,
+                item.weight +
+                add
+              );
+
+          }
+        );
+
+      }
+
+    }
+
+
+    /*
+      소수점 둘째 자리까지 맞추고
+      총합을 100%에 맞춤.
+    */
+
+    let roundedTotal = 0;
+
+
+    scoredItems.forEach(
+      item => {
+
+        item.weight =
+          Number(
+            item.weight.toFixed(
+              2
+            )
+          );
+
+
+        roundedTotal +=
+          item.weight;
+
+      }
+    );
+
+
+    const difference =
+      Number(
+        (
+          100 -
+          roundedTotal
+        ).toFixed(
+          2
+        )
+      );
+
+
+    if (
+      Math.abs(
+        difference
+      ) >= 0.01
+    ) {
+
+      const largest =
+        scoredItems.reduce(
+          (
+            best,
+            item
+          ) =>
+            !best ||
+            item.weight >
+            best.weight
+
+              ? item
+
+              : best,
+          null
+        );
+
+
+      if (
+        largest
+      ) {
+
+        largest.weight =
+          Number(
+            (
+              largest.weight +
+              difference
+            ).toFixed(
+              2
+            )
+          );
+
+      }
+
+    }
+
+  }
+
+
+  /* =========================================================
+     추천 비중 계산
+  ========================================================= */
+
+  async function calculateRecommendedWeights() {
+
+    if (
+      holdings.length === 0
+    ) {
+
+      alert(
+        "먼저 종목을 추가하세요."
+      );
+
+      return;
+
+    }
+
+
+    const apiKey =
+      localStorage.getItem(
+        API_KEY_STORAGE
+      );
+
+
+    if (!apiKey) {
+
+      alert(
+        "먼저 Alpha Vantage API Key를 저장하세요."
+      );
+
+      return;
+
+    }
+
+
+    const button =
+      document.getElementById(
+        "recommendButton"
+      );
+
+
+    const status =
+      document.getElementById(
+        "recommendStatus"
+      );
+
+
+    button.disabled =
+      true;
+
+
+    status.className =
+      "status loading";
+
+
+    status.textContent =
+      "재무 데이터를 확인하는 중입니다...";
+
+
+    const scoredItems = [];
+
+
+    let success = 0;
+
+    let failed = 0;
+
+
+    try {
+
+      for (
+        let i = 0;
+        i < holdings.length;
+        i++
+      ) {
+
+        const item =
+          holdings[i];
+
+
+        status.textContent =
+          "재무 데이터 확인 중 — " +
+          item.ticker +
+          " (" +
+          (
+            i + 1
+          ) +
+          "/" +
+          holdings.length +
+          ")";
+
+
+        try {
+
+          const data =
+            await getFundamentals(
+              item.ticker
+            );
+
+
+          const result =
+            calculateRecommendationScore(
+              data
+            );
+
+
+          let reason = "";
+
+
+          reason =
+            "성장 " +
+            result.growth.toFixed(1) +
+            " / 수익 " +
+            result.profitability.toFixed(1) +
+            " / 규모 " +
+            result.size.toFixed(1) +
+            " / 위험 " +
+            result.risk.toFixed(1) +
+            " / 밸류 " +
+            result.valuation.toFixed(1);
+
+
+          scoredItems.push({
+
+            item:
+              item,
+
+            score:
+              result.score,
+
+            reason:
+              reason,
+
+            weight:
+              0
+
+          });
+
+
+          success++;
+
+
+        } catch (error) {
+
+          console.error(
+            item.ticker,
+            error
+          );
+
+
+          failed++;
+
+        }
+
+
+        /*
+          API 요청 간 간격.
+        */
+
+        if (
+          i <
+          holdings.length - 1
+        ) {
+
+          await sleep(
+            1200
+          );
+
+        }
+
+      }
+
+
+      if (
+        scoredItems.length === 0
+      ) {
+
+        throw new Error(
+          "추천 계산에 사용할 재무 데이터를 가져오지 못했습니다."
+        );
+
+      }
+
+
+      convertScoresToWeights(
+        scoredItems
+      );
+
+
+      scoredItems.forEach(
+        result => {
+
+          result.item
+            .recommendationScore =
+            result.score;
+
+
+          result.item
+            .recommendedWeight =
+            result.weight;
+
+
+          result.item
+            .recommendationReason =
+            result.reason;
+
+        }
+      );
+
+
+      saveHoldings();
+
+      renderPortfolio();
+
+
+      status.className =
+        "status";
+
+
+      status.innerHTML =
+        "추천 계산 완료 — " +
+        "성공 " +
+        success +
+        "개 / " +
+        "실패 " +
+        failed +
+        "개" +
+        "<br><br>" +
+
+        '<button ' +
+        'class="button-recommend" ' +
+        'onclick="applyAllRecommendedWeights()">' +
+        "전체 추천비중을 목표비중에 적용" +
+        "</button>";
+
+
+    } catch (error) {
+
+      console.error(
+        error
+      );
+
+
+      status.className =
+        "status negative";
+
+
+      status.textContent =
+        "추천 계산 실패 — " +
+        error.message;
+
+    } finally {
+
+      button.disabled =
+        false;
+
+    }
 
   }
 
