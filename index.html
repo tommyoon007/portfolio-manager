@@ -7,6 +7,7 @@
   <title>Portfolio Manager</title>
 
   <style>
+
     * {
       box-sizing: border-box;
     }
@@ -25,7 +26,7 @@
     }
 
     .container {
-      max-width: 1100px;
+      max-width: 1200px;
       margin: 0 auto;
       padding: 20px;
     }
@@ -118,6 +119,11 @@
       opacity: 0.9;
     }
 
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     .button-secondary {
       background: #252f3c;
     }
@@ -127,6 +133,11 @@
       color: #ff8f9b;
     }
 
+    .button-small {
+      padding: 8px 10px;
+      font-size: 12px;
+    }
+
     .table-wrap {
       overflow-x: auto;
     }
@@ -134,7 +145,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 850px;
+      min-width: 1050px;
     }
 
     th {
@@ -169,6 +180,9 @@
       color: #8994a3;
       font-size: 11px;
       margin-top: 3px;
+      max-width: 190px;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .positive {
@@ -181,6 +195,14 @@
 
     .neutral {
       color: #aab3bf;
+    }
+
+    .weight-container {
+      min-width: 110px;
+    }
+
+    .weight-number {
+      margin-bottom: 5px;
     }
 
     .weight-bar {
@@ -211,6 +233,7 @@
       margin-top: 10px;
       font-size: 12px;
       color: #8994a3;
+      line-height: 1.5;
     }
 
     .notice {
@@ -234,6 +257,16 @@
       display: flex;
       gap: 6px;
       justify-content: flex-end;
+    }
+
+    .loading {
+      color: #8faeff;
+    }
+
+    .last-update {
+      color: #8d98a7;
+      font-size: 11px;
+      margin-top: 4px;
     }
 
     @media (max-width: 700px) {
@@ -261,7 +294,9 @@
       .summary-value {
         font-size: 17px;
       }
+
     }
+
   </style>
 </head>
 
@@ -270,14 +305,18 @@
 <div class="container">
 
   <header>
+
     <h1>📊 Portfolio Manager</h1>
+
     <div class="subtitle">
       내 포트폴리오의 현재 비중과 수익률을 관리합니다.
     </div>
+
   </header>
 
 
   <!-- API 설정 -->
+
   <div class="card">
 
     <div class="card-title">
@@ -298,19 +337,28 @@
 
     </div>
 
-    <div id="apiStatus" class="status">
+    <div
+      id="apiStatus"
+      class="status"
+    >
       API Key가 저장되지 않았습니다.
     </div>
 
     <div class="notice">
-      API Key는 이 코드에 포함되지 않으며 현재 사용하는 브라우저에만 저장됩니다.
-      무료 Alpha Vantage API는 요청 제한이 있으므로 시세는 캐시하여 불필요한 요청을 줄입니다.
+
+      API Key는 코드에 포함하지 않고 현재 사용하는
+      브라우저의 LocalStorage에 저장합니다.
+
+      무료 API의 요청 제한을 고려하여
+      시세와 회사명 데이터는 캐시합니다.
+
     </div>
 
   </div>
 
 
   <!-- 포트폴리오 요약 -->
+
   <div class="card">
 
     <div class="card-title">
@@ -320,6 +368,7 @@
     <div class="summary-grid">
 
       <div class="summary-item">
+
         <div class="summary-label">
           총 매수금액
         </div>
@@ -330,10 +379,12 @@
         >
           $0.00
         </div>
+
       </div>
 
 
       <div class="summary-item">
+
         <div class="summary-label">
           총 평가금액
         </div>
@@ -344,10 +395,12 @@
         >
           $0.00
         </div>
+
       </div>
 
 
       <div class="summary-item">
+
         <div class="summary-label">
           총 손익
         </div>
@@ -358,10 +411,12 @@
         >
           $0.00
         </div>
+
       </div>
 
 
       <div class="summary-item">
+
         <div class="summary-label">
           총 수익률
         </div>
@@ -372,6 +427,7 @@
         >
           0.00%
         </div>
+
       </div>
 
     </div>
@@ -380,6 +436,7 @@
 
 
   <!-- 종목 추가 -->
+
   <div class="card">
 
     <div class="card-title">
@@ -409,16 +466,25 @@
         placeholder="수량"
       >
 
-      <button onclick="addHolding()">
+      <button
+        id="addButton"
+        onclick="addHolding()"
+      >
         추가
       </button>
 
     </div>
 
+    <div
+      id="addStatus"
+      class="status"
+    ></div>
+
   </div>
 
 
   <!-- 포트폴리오 -->
+
   <div class="card">
 
     <div class="card-title">
@@ -434,21 +500,13 @@
           <tr>
 
             <th>종목</th>
-
             <th>평균매수가</th>
-
             <th>수량</th>
-
             <th>현재가</th>
-
             <th>평가금액</th>
-
             <th>손익</th>
-
             <th>수익률</th>
-
             <th>현재비중</th>
-
             <th>관리</th>
 
           </tr>
@@ -467,6 +525,7 @@
 
 
   <!-- 업데이트 -->
+
   <div class="card">
 
     <button
@@ -491,88 +550,212 @@
 
 <script>
 
-  const STORAGE_KEY = "portfolio_manager_holdings_v1";
-  const API_KEY_STORAGE = "portfolio_manager_alpha_key_v1";
-  const PRICE_CACHE_KEY = "portfolio_manager_price_cache_v1";
+  const STORAGE_KEY =
+    "portfolio_manager_holdings_v2";
+
+  const API_KEY_STORAGE =
+    "portfolio_manager_alpha_key_v1";
+
+  const PRICE_CACHE_KEY =
+    "portfolio_manager_price_cache_v2";
 
 
   let holdings = [];
+
   let priceCache = {};
 
 
-  /* =========================
+
+  /* =========================================================
      초기화
-  ========================= */
+  ========================================================= */
 
   function init() {
 
-    const savedHoldings =
-      localStorage.getItem(STORAGE_KEY);
+    loadHoldings();
 
-    if (savedHoldings) {
+    loadApiKey();
 
-      try {
-
-        holdings = JSON.parse(savedHoldings);
-
-      } catch (error) {
-
-        holdings = [];
-
-      }
-
-    }
-
-
-    const savedApiKey =
-      localStorage.getItem(API_KEY_STORAGE);
-
-    if (savedApiKey) {
-
-      document.getElementById("apiKey").value =
-        savedApiKey;
-
-      document.getElementById("apiStatus").textContent =
-        "API Key가 저장되어 있습니다.";
-
-    }
-
-
-    const savedCache =
-      localStorage.getItem(PRICE_CACHE_KEY);
-
-    if (savedCache) {
-
-      try {
-
-        priceCache = JSON.parse(savedCache);
-
-      } catch (error) {
-
-        priceCache = {};
-
-      }
-
-    }
-
+    loadPriceCache();
 
     renderPortfolio();
 
   }
 
 
-  /* =========================
-     API Key
-  ========================= */
+
+  /* =========================================================
+     기존 데이터 불러오기
+  ========================================================= */
+
+  function loadHoldings() {
+
+    let saved =
+      localStorage.getItem(STORAGE_KEY);
+
+
+    /*
+      이전 버전의 데이터도 가져옵니다.
+    */
+
+    if (!saved) {
+
+      saved =
+        localStorage.getItem(
+          "portfolio_manager_holdings_v1"
+        );
+
+    }
+
+
+    if (!saved) {
+
+      holdings = [];
+
+      return;
+
+    }
+
+
+    try {
+
+      holdings =
+        JSON.parse(saved);
+
+
+      if (!Array.isArray(holdings)) {
+
+        holdings = [];
+
+      }
+
+
+      /*
+        기존 데이터에 companyName이 없으면
+        빈 값으로 추가합니다.
+      */
+
+      holdings =
+        holdings.map(item => ({
+
+          ticker:
+            item.ticker || "",
+
+          companyName:
+            item.companyName || "",
+
+          avgPrice:
+            Number(item.avgPrice) || 0,
+
+          quantity:
+            Number(item.quantity) || 0,
+
+          currentPrice:
+            item.currentPrice !== null &&
+            item.currentPrice !== undefined
+              ? Number(item.currentPrice)
+              : null,
+
+          updatedAt:
+            item.updatedAt || null
+
+        }));
+
+
+    } catch (error) {
+
+      holdings = [];
+
+    }
+
+  }
+
+
+
+  /* =========================================================
+     API Key 불러오기
+  ========================================================= */
+
+  function loadApiKey() {
+
+    const key =
+      localStorage.getItem(
+        API_KEY_STORAGE
+      );
+
+
+    if (key) {
+
+      document.getElementById(
+        "apiKey"
+      ).value = key;
+
+
+      document.getElementById(
+        "apiStatus"
+      ).textContent =
+        "API Key가 저장되어 있습니다.";
+
+    }
+
+  }
+
+
+
+  /* =========================================================
+     가격 캐시 불러오기
+  ========================================================= */
+
+  function loadPriceCache() {
+
+    const saved =
+      localStorage.getItem(
+        PRICE_CACHE_KEY
+      );
+
+
+    if (!saved) {
+
+      priceCache = {};
+
+      return;
+
+    }
+
+
+    try {
+
+      priceCache =
+        JSON.parse(saved);
+
+    } catch (error) {
+
+      priceCache = {};
+
+    }
+
+  }
+
+
+
+  /* =========================================================
+     API Key 저장
+  ========================================================= */
 
   function saveApiKey() {
 
     const key =
-      document.getElementById("apiKey").value.trim();
+      document
+        .getElementById("apiKey")
+        .value
+        .trim();
+
 
     if (!key) {
 
-      alert("API Key를 입력하세요.");
+      alert(
+        "API Key를 입력하세요."
+      );
 
       return;
 
@@ -585,19 +768,20 @@
     );
 
 
-    document.getElementById("apiStatus").textContent =
+    document.getElementById(
+      "apiStatus"
+    ).textContent =
       "API Key가 저장되었습니다.";
-
-    alert("API Key 저장 완료");
 
   }
 
 
-  /* =========================
-     종목 추가
-  ========================= */
 
-  function addHolding() {
+  /* =========================================================
+     종목 추가
+  ========================================================= */
+
+  async function addHolding() {
 
     const ticker =
       document
@@ -625,7 +809,9 @@
 
     if (!ticker) {
 
-      alert("티커를 입력하세요.");
+      alert(
+        "티커를 입력하세요."
+      );
 
       return;
 
@@ -634,7 +820,9 @@
 
     if (!avgPrice || avgPrice <= 0) {
 
-      alert("평균 매수가를 입력하세요.");
+      alert(
+        "평균 매수가를 입력하세요."
+      );
 
       return;
 
@@ -643,77 +831,308 @@
 
     if (!quantity || quantity <= 0) {
 
-      alert("수량을 입력하세요.");
+      alert(
+        "수량을 입력하세요."
+      );
 
       return;
 
     }
 
 
-    const existing =
-      holdings.find(
-        item => item.ticker === ticker
+    const addButton =
+      document.getElementById(
+        "addButton"
       );
 
 
-    if (existing) {
+    const addStatus =
+      document.getElementById(
+        "addStatus"
+      );
 
-      const oldCost =
-        existing.avgPrice * existing.quantity;
 
-      const newCost =
-        avgPrice * quantity;
+    addButton.disabled = true;
 
-      const newQuantity =
-        existing.quantity + quantity;
 
-      existing.avgPrice =
-        (oldCost + newCost) / newQuantity;
+    addStatus.className =
+      "status loading";
 
-      existing.quantity =
-        newQuantity;
 
-    } else {
+    addStatus.textContent =
+      ticker +
+      " 회사 정보를 확인하는 중...";
 
-      holdings.push({
 
-        ticker: ticker,
+    try {
 
-        avgPrice: avgPrice,
+      /*
+        이미 존재하는 종목이면
+        회사명 조회를 다시 하지 않습니다.
+      */
 
-        quantity: quantity,
+      const existing =
+        holdings.find(
+          item =>
+            item.ticker === ticker
+        );
 
-        currentPrice: null,
 
-        updatedAt: null
+      if (existing) {
 
-      });
+        const oldCost =
+          existing.avgPrice *
+          existing.quantity;
+
+
+        const newCost =
+          avgPrice *
+          quantity;
+
+
+        const newQuantity =
+          existing.quantity +
+          quantity;
+
+
+        existing.avgPrice =
+          (
+            oldCost +
+            newCost
+          ) /
+          newQuantity;
+
+
+        existing.quantity =
+          newQuantity;
+
+
+        addStatus.textContent =
+          ticker +
+          " 매수 수량이 추가되었습니다.";
+
+      } else {
+
+        let companyName = "";
+
+
+        /*
+          회사명 조회
+        */
+
+        try {
+
+          companyName =
+            await getCompanyName(
+              ticker
+            );
+
+        } catch (error) {
+
+          console.warn(
+            "회사명 조회 실패:",
+            error
+          );
+
+          companyName =
+            ticker;
+
+        }
+
+
+        holdings.push({
+
+          ticker:
+
+            ticker,
+
+          companyName:
+
+            companyName,
+
+          avgPrice:
+
+            avgPrice,
+
+          quantity:
+
+            quantity,
+
+          currentPrice:
+
+            null,
+
+          updatedAt:
+
+            null
+
+        });
+
+
+        addStatus.textContent =
+          ticker +
+          " 추가 완료";
+
+      }
+
+
+      saveHoldings();
+
+
+      document.getElementById(
+        "tickerInput"
+      ).value = "";
+
+
+      document.getElementById(
+        "avgPriceInput"
+      ).value = "";
+
+
+      document.getElementById(
+        "quantityInput"
+      ).value = "";
+
+
+      renderPortfolio();
+
+
+    } finally {
+
+      addButton.disabled = false;
 
     }
-
-
-    saveHoldings();
-
-
-    document.getElementById("tickerInput").value = "";
-    document.getElementById("avgPriceInput").value = "";
-    document.getElementById("quantityInput").value = "";
-
-
-    renderPortfolio();
 
   }
 
 
-  /* =========================
-     종목 삭제
-  ========================= */
 
-  function deleteHolding(ticker) {
+  /* =========================================================
+     회사명 조회
+  ========================================================= */
+
+  async function getCompanyName(
+    ticker
+  ) {
+
+    const apiKey =
+      localStorage.getItem(
+        API_KEY_STORAGE
+      );
+
+
+    if (!apiKey) {
+
+      throw new Error(
+        "API Key가 없습니다."
+      );
+
+    }
+
+
+    /*
+      회사명 캐시
+    */
+
+    const companyCacheKey =
+      "company_" +
+      ticker;
+
+
+    const cached =
+      localStorage.getItem(
+        companyCacheKey
+      );
+
+
+    if (cached) {
+
+      return cached;
+
+    }
+
+
+    const url =
+      "https://www.alphavantage.co/query" +
+      "?function=OVERVIEW" +
+      "&symbol=" +
+      encodeURIComponent(ticker) +
+      "&apikey=" +
+      encodeURIComponent(apiKey);
+
+
+    const response =
+      await fetch(url);
+
+
+    if (!response.ok) {
+
+      throw new Error(
+        "회사정보 API 오류"
+      );
+
+    }
+
+
+    const data =
+      await response.json();
+
+
+    if (data["Note"]) {
+
+      throw new Error(
+        "API 요청 제한"
+      );
+
+    }
+
+
+    if (data["Error Message"]) {
+
+      throw new Error(
+        "티커를 확인할 수 없습니다."
+      );
+
+    }
+
+
+    const name =
+      data["Name"];
+
+
+    if (!name) {
+
+      throw new Error(
+        "회사명을 찾을 수 없습니다."
+      );
+
+    }
+
+
+    localStorage.setItem(
+      companyCacheKey,
+      name
+    );
+
+
+    return name;
+
+  }
+
+
+
+  /* =========================================================
+     종목 삭제
+  ========================================================= */
+
+  function deleteHolding(
+    ticker
+  ) {
 
     if (
       !confirm(
-        ticker + " 종목을 삭제하시겠습니까?"
+        ticker +
+        " 종목을 삭제하시겠습니까?"
       )
     ) {
 
@@ -724,7 +1143,8 @@
 
     holdings =
       holdings.filter(
-        item => item.ticker !== ticker
+        item =>
+          item.ticker !== ticker
       );
 
 
@@ -735,103 +1155,63 @@
   }
 
 
-  /* =========================
+
+  /* =========================================================
      저장
-  ========================= */
+  ========================================================= */
 
   function saveHoldings() {
 
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify(holdings)
+      JSON.stringify(
+        holdings
+      )
     );
 
   }
 
 
-  /* =========================
-     숫자 포맷
-  ========================= */
 
-  function money(value) {
-
-    if (
-      value === null ||
-      value === undefined ||
-      Number.isNaN(value)
-    ) {
-
-      return "-";
-
-    }
-
-
-    return "$" +
-      value.toLocaleString(
-        "en-US",
-        {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2
-        }
-      );
-
-  }
-
-
-  function numberFormat(value) {
-
-    return Number(value).toLocaleString(
-      "en-US",
-      {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 4
-      }
-    );
-
-  }
-
-
-  function percent(value) {
-
-    return (
-      Number(value).toFixed(2) +
-      "%"
-    );
-
-  }
-
-
-  /* =========================
+  /* =========================================================
      포트폴리오 계산
-  ========================= */
+  ========================================================= */
 
   function calculatePortfolio() {
 
     let totalCost = 0;
+
     let totalValue = 0;
 
 
-    holdings.forEach(item => {
+    holdings.forEach(
+      item => {
 
-      const cost =
-        item.avgPrice *
-        item.quantity;
-
-
-      const price =
-        item.currentPrice ??
-        item.avgPrice;
+        const cost =
+          item.avgPrice *
+          item.quantity;
 
 
-      const value =
-        price *
-        item.quantity;
+        const price =
+          item.currentPrice !== null &&
+          item.currentPrice !== undefined
+
+            ? item.currentPrice
+
+            : item.avgPrice;
 
 
-      totalCost += cost;
-      totalValue += value;
+        const value =
+          price *
+          item.quantity;
 
-    });
+
+        totalCost += cost;
+
+        totalValue += value;
+
+      }
+    );
 
 
     const totalProfit =
@@ -841,25 +1221,38 @@
 
     const totalReturn =
       totalCost > 0
-        ? (totalProfit / totalCost) * 100
+
+        ? (
+            totalProfit /
+            totalCost
+          ) * 100
+
         : 0;
 
 
     return {
 
-      totalCost,
-      totalValue,
-      totalProfit,
-      totalReturn
+      totalCost:
+        totalCost,
+
+      totalValue:
+        totalValue,
+
+      totalProfit:
+        totalProfit,
+
+      totalReturn:
+        totalReturn
 
     };
 
   }
 
 
-  /* =========================
+
+  /* =========================================================
      화면 출력
-  ========================= */
+  ========================================================= */
 
   function renderPortfolio() {
 
@@ -869,17 +1262,26 @@
       );
 
 
-    if (holdings.length === 0) {
+    if (
+      holdings.length === 0
+    ) {
 
       body.innerHTML = `
+
         <tr>
+
           <td colspan="9">
+
             <div class="empty">
               아직 등록된 종목이 없습니다.
             </div>
+
           </td>
+
         </tr>
+
       `;
+
 
       updateSummary();
 
@@ -893,148 +1295,232 @@
 
 
     body.innerHTML =
-      holdings.map(item => {
+      holdings.map(
+        item => {
 
-        const cost =
-          item.avgPrice *
-          item.quantity;
-
-
-        const price =
-          item.currentPrice;
+          const cost =
+            item.avgPrice *
+            item.quantity;
 
 
-        const value =
-          price !== null &&
-          price !== undefined
-            ? price * item.quantity
-            : null;
+          const price =
+            item.currentPrice;
 
 
-        const profit =
-          value !== null
-            ? value - cost
-            : null;
+          const value =
+            price !== null &&
+            price !== undefined
+
+              ? price *
+                item.quantity
+
+              : null;
 
 
-        const returnRate =
-          value !== null &&
-          cost > 0
-            ? (profit / cost) * 100
-            : null;
+          const profit =
+            value !== null
+
+              ? value -
+                cost
+
+              : null;
 
 
-        const weight =
-          value !== null &&
-          portfolio.totalValue > 0
-            ? (value / portfolio.totalValue) * 100
-            : 0;
+          const returnRate =
+            value !== null &&
+            cost > 0
+
+              ? (
+                  profit /
+                  cost
+                ) * 100
+
+              : null;
 
 
-        let profitClass =
-          "neutral";
+          const weight =
+            value !== null &&
+            portfolio.totalValue > 0
+
+              ? (
+                  value /
+                  portfolio.totalValue
+                ) * 100
+
+              : 0;
 
 
-        if (profit !== null) {
+          let profitClass =
+            "neutral";
 
-          if (profit > 0) {
 
-            profitClass = "positive";
+          if (
+            profit !== null
+          ) {
 
-          } else if (profit < 0) {
+            if (
+              profit > 0
+            ) {
 
-            profitClass = "negative";
+              profitClass =
+                "positive";
+
+            }
+
+            else if (
+              profit < 0
+            ) {
+
+              profitClass =
+                "negative";
+
+            }
 
           }
 
+
+          return `
+
+            <tr>
+
+              <td>
+
+                <div class="ticker">
+                  ${escapeHtml(
+                    item.ticker
+                  )}
+                </div>
+
+                <div class="company">
+                  ${escapeHtml(
+                    item.companyName ||
+                    ""
+                  )}
+                </div>
+
+                ${
+                  item.updatedAt
+
+                    ? `
+                      <div class="last-update">
+                        ${formatDate(
+                          item.updatedAt
+                        )}
+                      </div>
+                    `
+
+                    : ""
+                }
+
+              </td>
+
+
+              <td>
+                ${money(
+                  item.avgPrice
+                )}
+              </td>
+
+
+              <td>
+                ${numberFormat(
+                  item.quantity
+                )}
+              </td>
+
+
+              <td>
+                ${money(
+                  price
+                )}
+              </td>
+
+
+              <td>
+                ${money(
+                  value
+                )}
+              </td>
+
+
+              <td
+                class="${profitClass}"
+              >
+                ${money(
+                  profit
+                )}
+              </td>
+
+
+              <td
+                class="${profitClass}"
+              >
+                ${
+                  returnRate !== null
+
+                    ? percent(
+                        returnRate
+                      )
+
+                    : "-"
+                }
+              </td>
+
+
+              <td>
+
+                <div class="weight-container">
+
+                  <div class="weight-number">
+                    ${percent(
+                      weight
+                    )}
+                  </div>
+
+                  <div class="weight-bar">
+
+                    <div
+                      class="weight-fill"
+                      style="
+                        width:${Math.min(
+                          weight,
+                          100
+                        )}%
+                      "
+                    ></div>
+
+                  </div>
+
+                </div>
+
+              </td>
+
+
+              <td>
+
+                <div class="actions">
+
+                  <button
+                    class="button-danger button-small"
+                    onclick="deleteHolding(
+                      '${escapeHtml(
+                        item.ticker
+                      )}'
+                    )"
+                  >
+                    삭제
+                  </button>
+
+                </div>
+
+              </td>
+
+            </tr>
+
+          `;
+
         }
-
-
-        return `
-
-          <tr>
-
-            <td>
-
-              <div class="ticker">
-                ${escapeHtml(item.ticker)}
-              </div>
-
-            </td>
-
-
-            <td>
-              ${money(item.avgPrice)}
-            </td>
-
-
-            <td>
-              ${numberFormat(item.quantity)}
-            </td>
-
-
-            <td>
-              ${money(price)}
-            </td>
-
-
-            <td>
-              ${money(value)}
-            </td>
-
-
-            <td class="${profitClass}">
-              ${money(profit)}
-            </td>
-
-
-            <td class="${profitClass}">
-              ${
-                returnRate !== null
-                  ? percent(returnRate)
-                  : "-"
-              }
-            </td>
-
-
-            <td>
-
-              <div>
-                ${percent(weight)}
-              </div>
-
-              <div class="weight-bar">
-
-                <div
-                  class="weight-fill"
-                  style="width:${Math.min(weight, 100)}%"
-                ></div>
-
-              </div>
-
-            </td>
-
-
-            <td>
-
-              <div class="actions">
-
-                <button
-                  class="button-danger"
-                  onclick="deleteHolding('${escapeHtml(item.ticker)}')"
-                >
-                  삭제
-                </button>
-
-              </div>
-
-            </td>
-
-          </tr>
-
-        `;
-
-      }).join("");
+      ).join("");
 
 
     updateSummary();
@@ -1042,9 +1528,10 @@
   }
 
 
-  /* =========================
-     요약 업데이트
-  ========================= */
+
+  /* =========================================================
+     요약
+  ========================================================= */
 
   function updateSummary() {
 
@@ -1055,13 +1542,17 @@
     document.getElementById(
       "totalCost"
     ).textContent =
-      money(portfolio.totalCost);
+      money(
+        portfolio.totalCost
+      );
 
 
     document.getElementById(
       "totalValue"
     ).textContent =
-      money(portfolio.totalValue);
+      money(
+        portfolio.totalValue
+      );
 
 
     const profitElement =
@@ -1071,16 +1562,23 @@
 
 
     profitElement.textContent =
-      money(portfolio.totalProfit);
+      money(
+        portfolio.totalProfit
+      );
 
 
     profitElement.className =
       "summary-value " +
+
       (
         portfolio.totalProfit > 0
+
           ? "positive"
+
           : portfolio.totalProfit < 0
+
             ? "negative"
+
             : "neutral"
       );
 
@@ -1092,27 +1590,37 @@
 
 
     returnElement.textContent =
-      percent(portfolio.totalReturn);
+      percent(
+        portfolio.totalReturn
+      );
 
 
     returnElement.className =
       "summary-value " +
+
       (
         portfolio.totalReturn > 0
+
           ? "positive"
+
           : portfolio.totalReturn < 0
+
             ? "negative"
+
             : "neutral"
       );
 
   }
 
 
-  /* =========================
-     Alpha Vantage 시세
-  ========================= */
 
-  async function getPrice(ticker) {
+  /* =========================================================
+     시세 조회
+  ========================================================= */
+
+  async function getPrice(
+    ticker
+  ) {
 
     const apiKey =
       localStorage.getItem(
@@ -1131,12 +1639,20 @@
 
     const url =
       "https://www.alphavantage.co/query" +
+
       "?function=TIME_SERIES_DAILY" +
+
       "&symbol=" +
-      encodeURIComponent(ticker) +
+      encodeURIComponent(
+        ticker
+      ) +
+
       "&outputsize=compact" +
+
       "&apikey=" +
-      encodeURIComponent(apiKey);
+      encodeURIComponent(
+        apiKey
+      );
 
 
     const response =
@@ -1157,7 +1673,9 @@
       await response.json();
 
 
-    if (data["Error Message"]) {
+    if (
+      data["Error Message"]
+    ) {
 
       throw new Error(
         ticker +
@@ -1167,7 +1685,9 @@
     }
 
 
-    if (data["Note"]) {
+    if (
+      data["Note"]
+    ) {
 
       throw new Error(
         "Alpha Vantage API 요청 제한에 도달했습니다."
@@ -1177,7 +1697,9 @@
 
 
     const series =
-      data["Time Series (Daily)"];
+      data[
+        "Time Series (Daily)"
+      ];
 
 
     if (!series) {
@@ -1191,7 +1713,11 @@
 
 
     const dates =
-      Object.keys(series).sort().reverse();
+      Object.keys(
+        series
+      )
+      .sort()
+      .reverse();
 
 
     const latestDate =
@@ -1200,18 +1726,22 @@
 
     const latestPrice =
       Number(
-        series[latestDate]["4. close"]
+        series[
+          latestDate
+        ]["4. close"]
       );
 
 
     if (
       !latestPrice ||
-      Number.isNaN(latestPrice)
+      Number.isNaN(
+        latestPrice
+      )
     ) {
 
       throw new Error(
         ticker +
-        ": 현재가를 확인할 수 없습니다."
+        ": 가격을 확인할 수 없습니다."
       );
 
     }
@@ -1219,24 +1749,31 @@
 
     return {
 
-      price: latestPrice,
+      price:
+        latestPrice,
 
-      date: latestDate
+      date:
+        latestDate
 
     };
 
   }
 
 
-  /* =========================
+
+  /* =========================================================
      시세 업데이트
-  ========================= */
+  ========================================================= */
 
   async function refreshPrices() {
 
-    if (holdings.length === 0) {
+    if (
+      holdings.length === 0
+    ) {
 
-      alert("먼저 종목을 추가하세요.");
+      alert(
+        "먼저 종목을 추가하세요."
+      );
 
       return;
 
@@ -1266,11 +1803,16 @@
       );
 
 
+    status.className =
+      "status loading";
+
+
     status.textContent =
       "시세를 확인하는 중입니다...";
 
 
     let success = 0;
+
     let failed = 0;
 
 
@@ -1280,21 +1822,25 @@
 
       try {
 
-        /*
-          무료 API 사용량을 줄이기 위해
-          오늘 이미 받은 데이터가 있으면
-          다시 요청하지 않습니다.
-        */
-
         const cached =
-          priceCache[item.ticker];
+          priceCache[
+            item.ticker
+          ];
 
 
         const today =
           new Date()
-            .toISOString()
-            .slice(0, 10);
+          .toISOString()
+          .slice(
+            0,
+            10
+          );
 
+
+        /*
+          오늘 이미 받아온 데이터가 있으면
+          API를 다시 호출하지 않습니다.
+        */
 
         if (
           cached &&
@@ -1304,8 +1850,10 @@
           item.currentPrice =
             cached.price;
 
+
           item.updatedAt =
             cached.updatedAt;
+
 
           success++;
 
@@ -1325,18 +1873,25 @@
 
 
         item.updatedAt =
-          new Date().toISOString();
+          new Date()
+          .toISOString();
 
 
-        priceCache[item.ticker] = {
+        priceCache[
+          item.ticker
+        ] = {
 
-          price: result.price,
+          price:
+            result.price,
 
-          date: today,
+          date:
+            today,
 
-          updatedAt: item.updatedAt,
+          updatedAt:
+            item.updatedAt,
 
-          sourceDate: result.date
+          sourceDate:
+            result.date
 
         };
 
@@ -1345,12 +1900,18 @@
 
 
         /*
-          API 요청 사이에 약간의 간격을 둡니다.
+          무료 API에 너무 빠르게
+          연속 요청하지 않도록 합니다.
         */
 
-        await sleep(1200);
+        await sleep(
+          1200
+        );
 
-      } catch (error) {
+
+      } catch (
+        error
+      ) {
 
         console.error(
           item.ticker,
@@ -1370,55 +1931,204 @@
 
     localStorage.setItem(
       PRICE_CACHE_KEY,
-      JSON.stringify(priceCache)
+      JSON.stringify(
+        priceCache
+      )
     );
 
 
     renderPortfolio();
 
 
+    status.className =
+      "status";
+
+
     status.textContent =
-      "업데이트 완료 — 성공 " +
+      "업데이트 완료 — " +
+
+      "성공 " +
       success +
-      "개 / 실패 " +
+      "개 / " +
+
+      "실패 " +
       failed +
       "개 / " +
-      new Date().toLocaleString(
+
+      new Date()
+      .toLocaleString(
         "ko-KR"
       );
 
   }
 
 
-  /* =========================
-     보조 함수
-  ========================= */
 
-  function sleep(ms) {
+  /* =========================================================
+     포맷 함수
+  ========================================================= */
 
-    return new Promise(
-      resolve =>
-        setTimeout(resolve, ms)
+  function money(
+    value
+  ) {
+
+    if (
+      value === null ||
+      value === undefined ||
+      Number.isNaN(
+        value
+      )
+    ) {
+
+      return "-";
+
+    }
+
+
+    return "$" +
+
+      value.toLocaleString(
+        "en-US",
+        {
+          minimumFractionDigits:
+            2,
+
+          maximumFractionDigits:
+            2
+        }
+      );
+
+  }
+
+
+
+  function numberFormat(
+    value
+  ) {
+
+    return Number(
+      value
+    ).toLocaleString(
+      "en-US",
+      {
+        minimumFractionDigits:
+          0,
+
+        maximumFractionDigits:
+          4
+      }
     );
 
   }
 
 
-  function escapeHtml(value) {
 
-    return String(value)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
+  function percent(
+    value
+  ) {
+
+    return (
+      Number(
+        value
+      ).toFixed(
+        2
+      ) +
+      "%"
+    );
 
   }
 
 
-  /* =========================
+
+  function formatDate(
+    value
+  ) {
+
+    try {
+
+      return new Date(
+        value
+      ).toLocaleString(
+        "ko-KR",
+        {
+          month: "numeric",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit"
+        }
+      );
+
+    } catch (
+      error
+    ) {
+
+      return "";
+
+    }
+
+  }
+
+
+
+  /* =========================================================
+     보안용 HTML 처리
+  ========================================================= */
+
+  function escapeHtml(
+    value
+  ) {
+
+    return String(
+      value
+    )
+    .replace(
+      /&/g,
+      "&amp;"
+    )
+    .replace(
+      /</g,
+      "&lt;"
+    )
+    .replace(
+      />/g,
+      "&gt;"
+    )
+    .replace(
+      /"/g,
+      "&quot;"
+    )
+    .replace(
+      /'/g,
+      "&#039;"
+    );
+
+  }
+
+
+
+  /* =========================================================
+     대기
+  ========================================================= */
+
+  function sleep(
+    milliseconds
+  ) {
+
+    return new Promise(
+      resolve =>
+        setTimeout(
+          resolve,
+          milliseconds
+        )
+    );
+
+  }
+
+
+
+  /* =========================================================
      시작
-  ========================= */
+  ========================================================= */
 
   init();
 
