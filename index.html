@@ -26,7 +26,7 @@
     }
 
     .container {
-      max-width: 1200px;
+      max-width: 1400px;
       margin: 0 auto;
       padding: 20px;
     }
@@ -145,7 +145,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1050px;
+      min-width: 1350px;
     }
 
     th {
@@ -220,6 +220,27 @@
       border-radius: 10px;
     }
 
+    .target-input {
+      width: 85px;
+      padding: 8px;
+      text-align: right;
+      font-size: 13px;
+    }
+
+    .rebalance-add {
+      color: #55d68a;
+      font-weight: 700;
+    }
+
+    .rebalance-reduce {
+      color: #ff6f7d;
+      font-weight: 700;
+    }
+
+    .rebalance-neutral {
+      color: #8994a3;
+    }
+
     .api-row {
       display: flex;
       gap: 10px;
@@ -269,6 +290,16 @@
       margin-top: 4px;
     }
 
+    .target-total {
+      margin-top: 12px;
+      font-size: 13px;
+      color: #aab3bf;
+    }
+
+    .target-total strong {
+      color: #fff;
+    }
+
     @media (max-width: 700px) {
 
       .container {
@@ -309,7 +340,7 @@
     <h1>📊 Portfolio Manager</h1>
 
     <div class="subtitle">
-      내 포트폴리오의 현재 비중과 수익률을 관리합니다.
+      내 포트폴리오의 현재 비중과 목표 비중을 관리합니다.
     </div>
 
   </header>
@@ -507,6 +538,10 @@
             <th>손익</th>
             <th>수익률</th>
             <th>현재비중</th>
+            <th>목표비중</th>
+            <th>비중차이</th>
+            <th>목표금액</th>
+            <th>추가/매도금액</th>
             <th>관리</th>
 
           </tr>
@@ -519,6 +554,13 @@
 
       </table>
 
+    </div>
+
+    <div
+      id="targetTotal"
+      class="target-total"
+    >
+      목표 비중 합계: <strong>0.00%</strong>
     </div>
 
   </div>
@@ -565,7 +607,6 @@
   let priceCache = {};
 
 
-
   /* =========================================================
      초기화
   ========================================================= */
@@ -583,7 +624,6 @@
   }
 
 
-
   /* =========================================================
      기존 데이터 불러오기
   ========================================================= */
@@ -593,10 +633,6 @@
     let saved =
       localStorage.getItem(STORAGE_KEY);
 
-
-    /*
-      이전 버전의 데이터도 가져옵니다.
-    */
 
     if (!saved) {
 
@@ -630,11 +666,6 @@
       }
 
 
-      /*
-        기존 데이터에 companyName이 없으면
-        빈 값으로 추가합니다.
-      */
-
       holdings =
         holdings.map(item => ({
 
@@ -657,7 +688,18 @@
               : null,
 
           updatedAt:
-            item.updatedAt || null
+            item.updatedAt || null,
+
+          /*
+            새로 추가된 목표 비중.
+            기존 종목은 기본값 0%.
+          */
+
+          targetWeight:
+            item.targetWeight !== undefined &&
+            item.targetWeight !== null
+              ? Number(item.targetWeight)
+              : 0
 
         }));
 
@@ -669,7 +711,6 @@
     }
 
   }
-
 
 
   /* =========================================================
@@ -699,7 +740,6 @@
     }
 
   }
-
 
 
   /* =========================================================
@@ -735,7 +775,6 @@
     }
 
   }
-
 
 
   /* =========================================================
@@ -774,7 +813,6 @@
       "API Key가 저장되었습니다.";
 
   }
-
 
 
   /* =========================================================
@@ -866,11 +904,6 @@
 
     try {
 
-      /*
-        이미 존재하는 종목이면
-        회사명 조회를 다시 하지 않습니다.
-      */
-
       const existing =
         holdings.find(
           item =>
@@ -916,10 +949,6 @@
         let companyName = "";
 
 
-        /*
-          회사명 조회
-        */
-
         try {
 
           companyName =
@@ -943,28 +972,25 @@
         holdings.push({
 
           ticker:
-
             ticker,
 
           companyName:
-
             companyName,
 
           avgPrice:
-
             avgPrice,
 
           quantity:
-
             quantity,
 
           currentPrice:
-
             null,
 
           updatedAt:
+            null,
 
-            null
+          targetWeight:
+            0
 
         });
 
@@ -1006,7 +1032,6 @@
   }
 
 
-
   /* =========================================================
      회사명 조회
   ========================================================= */
@@ -1029,10 +1054,6 @@
 
     }
 
-
-    /*
-      회사명 캐시
-    */
 
     const companyCacheKey =
       "company_" +
@@ -1120,6 +1141,64 @@
   }
 
 
+  /* =========================================================
+     목표 비중 변경
+  ========================================================= */
+
+  function updateTargetWeight(
+    ticker,
+    value
+  ) {
+
+    let target =
+      Number(value);
+
+
+    if (
+      Number.isNaN(target) ||
+      target < 0
+    ) {
+
+      target = 0;
+
+    }
+
+
+    /*
+      100%를 초과하지 않도록 제한
+    */
+
+    if (target > 100) {
+
+      target = 100;
+
+    }
+
+
+    const item =
+      holdings.find(
+        holding =>
+          holding.ticker === ticker
+      );
+
+
+    if (!item) {
+
+      return;
+
+    }
+
+
+    item.targetWeight =
+      target;
+
+
+    saveHoldings();
+
+    renderPortfolio();
+
+  }
+
 
   /* =========================================================
      종목 삭제
@@ -1155,7 +1234,6 @@
   }
 
 
-
   /* =========================================================
      저장
   ========================================================= */
@@ -1170,7 +1248,6 @@
     );
 
   }
-
 
 
   /* =========================================================
@@ -1249,7 +1326,6 @@
   }
 
 
-
   /* =========================================================
      화면 출력
   ========================================================= */
@@ -1270,7 +1346,7 @@
 
         <tr>
 
-          <td colspan="9">
+          <td colspan="13">
 
             <div class="empty">
               아직 등록된 종목이 없습니다.
@@ -1284,6 +1360,8 @@
 
 
       updateSummary();
+
+      updateTargetTotal();
 
       return;
 
@@ -1350,6 +1428,32 @@
               : 0;
 
 
+          const targetWeight =
+            Number(
+              item.targetWeight
+            ) || 0;
+
+
+          const weightDifference =
+            targetWeight -
+            weight;
+
+
+          const targetValue =
+            portfolio.totalValue *
+            (
+              targetWeight /
+              100
+            );
+
+
+          const rebalanceAmount =
+            targetValue -
+            (
+              value || 0
+            );
+
+
           let profitClass =
             "neutral";
 
@@ -1375,6 +1479,29 @@
                 "negative";
 
             }
+
+          }
+
+
+          let rebalanceClass =
+            "rebalance-neutral";
+
+
+          if (
+            rebalanceAmount > 0.01
+          ) {
+
+            rebalanceClass =
+              "rebalance-add";
+
+          }
+
+          else if (
+            rebalanceAmount < -0.01
+          ) {
+
+            rebalanceClass =
+              "rebalance-reduce";
 
           }
 
@@ -1498,6 +1625,81 @@
 
               <td>
 
+                <input
+                  class="target-input"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value="${targetWeight}"
+                  onchange="
+                    updateTargetWeight(
+                      '${escapeHtml(
+                        item.ticker
+                      )}',
+                      this.value
+                    )
+                  "
+                >
+
+              </td>
+
+
+              <td
+                class="${
+                  weightDifference > 0.01
+                    ? "positive"
+                    : weightDifference < -0.01
+                      ? "negative"
+                      : "neutral"
+                }"
+              >
+                ${
+                  weightDifference > 0
+                    ? "+"
+                    : ""
+                }${percent(
+                  weightDifference
+                )}
+              </td>
+
+
+              <td>
+                ${money(
+                  targetValue
+                )}
+              </td>
+
+
+              <td
+                class="${rebalanceClass}"
+              >
+
+                ${
+                  rebalanceAmount > 0.01
+
+                    ? "+ " +
+                      money(
+                        rebalanceAmount
+                      )
+
+                    : rebalanceAmount < -0.01
+
+                      ? "- " +
+                        money(
+                          Math.abs(
+                            rebalanceAmount
+                          )
+                        )
+
+                      : "유지"
+                }
+
+              </td>
+
+
+              <td>
+
                 <div class="actions">
 
                   <button
@@ -1525,8 +1727,83 @@
 
     updateSummary();
 
+    updateTargetTotal();
+
   }
 
+
+  /* =========================================================
+     목표 비중 합계
+  ========================================================= */
+
+  function updateTargetTotal() {
+
+    const total =
+      holdings.reduce(
+        (
+          sum,
+          item
+        ) =>
+          sum +
+          (
+            Number(
+              item.targetWeight
+            ) || 0
+          ),
+        0
+      );
+
+
+    const element =
+      document.getElementById(
+        "targetTotal"
+      );
+
+
+    let message =
+      "목표 비중 합계: ";
+
+
+    message +=
+      "<strong>" +
+      percent(total) +
+      "</strong>";
+
+
+    if (
+      total > 100.001
+    ) {
+
+      message +=
+        ' <span class="negative">⚠️ 100% 초과</span>';
+
+    }
+
+    else if (
+      total < 99.999
+    ) {
+
+      message +=
+        ' <span class="neutral">미배분 ' +
+        percent(
+          100 - total
+        ) +
+        "</span>";
+
+    }
+
+    else {
+
+      message +=
+        ' <span class="positive">✓ 100%</span>';
+
+    }
+
+
+    element.innerHTML =
+      message;
+
+  }
 
 
   /* =========================================================
@@ -1611,7 +1888,6 @@
       );
 
   }
-
 
 
   /* =========================================================
@@ -1760,7 +2036,6 @@
   }
 
 
-
   /* =========================================================
      시세 업데이트
   ========================================================= */
@@ -1837,11 +2112,6 @@
           );
 
 
-        /*
-          오늘 이미 받아온 데이터가 있으면
-          API를 다시 호출하지 않습니다.
-        */
-
         if (
           cached &&
           cached.date === today
@@ -1898,11 +2168,6 @@
 
         success++;
 
-
-        /*
-          무료 API에 너무 빠르게
-          연속 요청하지 않도록 합니다.
-        */
 
         await sleep(
           1200
@@ -1963,7 +2228,6 @@
   }
 
 
-
   /* =========================================================
      포맷 함수
   ========================================================= */
@@ -2001,7 +2265,6 @@
   }
 
 
-
   function numberFormat(
     value
   ) {
@@ -2022,7 +2285,6 @@
   }
 
 
-
   function percent(
     value
   ) {
@@ -2037,7 +2299,6 @@
     );
 
   }
-
 
 
   function formatDate(
@@ -2067,7 +2328,6 @@
     }
 
   }
-
 
 
   /* =========================================================
@@ -2105,7 +2365,6 @@
   }
 
 
-
   /* =========================================================
      대기
   ========================================================= */
@@ -2123,7 +2382,6 @@
     );
 
   }
-
 
 
   /* =========================================================
