@@ -84,6 +84,37 @@
       font-weight: 800;
     }
 
+    .rebalance-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    .rebalance-item {
+      background: #0d131a;
+      border-radius: 12px;
+      padding: 14px;
+      border: 1px solid #1d2733;
+    }
+
+    .rebalance-label {
+      color: #8d98a7;
+      font-size: 12px;
+      margin-bottom: 7px;
+    }
+
+    .rebalance-value {
+      font-size: 19px;
+      font-weight: 800;
+    }
+
+    .rebalance-description {
+      margin-top: 12px;
+      color: #8994a3;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
     .form-grid {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr auto;
@@ -347,6 +378,14 @@
       color: #fff;
     }
 
+    @media (max-width: 900px) {
+
+      .rebalance-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+    }
+
     @media (max-width: 700px) {
 
       .container {
@@ -361,6 +400,10 @@
         grid-template-columns: repeat(2, 1fr);
       }
 
+      .rebalance-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
       .form-grid {
         grid-template-columns: 1fr;
       }
@@ -371,6 +414,10 @@
 
       .summary-value {
         font-size: 17px;
+      }
+
+      .rebalance-value {
+        font-size: 16px;
       }
 
     }
@@ -513,6 +560,91 @@
   </div>
 
 
+  <!-- 리밸런싱 요약 -->
+
+  <div class="card">
+
+    <div class="card-title">
+      ⚖️ 리밸런싱 요약
+    </div>
+
+    <div class="rebalance-grid">
+
+      <div class="rebalance-item">
+
+        <div class="rebalance-label">
+          전체 추가매수
+        </div>
+
+        <div
+          id="totalAddAmount"
+          class="rebalance-value positive"
+        >
+          $0.00
+        </div>
+
+      </div>
+
+
+      <div class="rebalance-item">
+
+        <div class="rebalance-label">
+          전체 매도
+        </div>
+
+        <div
+          id="totalReduceAmount"
+          class="rebalance-value negative"
+        >
+          $0.00
+        </div>
+
+      </div>
+
+
+      <div class="rebalance-item">
+
+        <div class="rebalance-label">
+          순 추가투자
+        </div>
+
+        <div
+          id="netRebalanceAmount"
+          class="rebalance-value neutral"
+        >
+          $0.00
+        </div>
+
+      </div>
+
+
+      <div class="rebalance-item">
+
+        <div class="rebalance-label">
+          목표 미배분 금액
+        </div>
+
+        <div
+          id="unallocatedAmount"
+          class="rebalance-value neutral"
+        >
+          $0.00
+        </div>
+
+      </div>
+
+    </div>
+
+    <div
+      id="rebalanceDescription"
+      class="rebalance-description"
+    >
+      목표 비중을 입력하면 리밸런싱에 필요한 금액을 계산합니다.
+    </div>
+
+  </div>
+
+
   <!-- 종목 추가 -->
 
   <div class="card">
@@ -627,7 +759,7 @@
 
       <strong>추천비중 적용</strong>을 누르면
       추천비중이 목표비중으로 복사되고,
-      기존 추가매수/매도 금액 계산에 바로 반영됩니다.
+      추가매수/매도 금액 계산에 바로 반영됩니다.
 
     </div>
 
@@ -1579,6 +1711,138 @@
 
 
   /* =========================================================
+     리밸런싱 계산
+  ========================================================= */
+
+  function calculateRebalanceSummary() {
+
+    const portfolio =
+      calculatePortfolio();
+
+
+    let totalAdd = 0;
+
+    let totalReduce = 0;
+
+
+    holdings.forEach(
+      item => {
+
+        const price =
+          item.currentPrice !== null &&
+          item.currentPrice !== undefined
+
+            ? item.currentPrice
+
+            : item.avgPrice;
+
+
+        const value =
+          price *
+          item.quantity;
+
+
+        const targetWeight =
+          Number(
+            item.targetWeight
+          ) || 0;
+
+
+        const targetValue =
+          portfolio.totalValue *
+          (
+            targetWeight /
+            100
+          );
+
+
+        const difference =
+          targetValue -
+          value;
+
+
+        if (
+          difference > 0
+        ) {
+
+          totalAdd +=
+            difference;
+
+        }
+
+        else if (
+          difference < 0
+        ) {
+
+          totalReduce +=
+            Math.abs(
+              difference
+            );
+
+        }
+
+      }
+    );
+
+
+    const targetTotal =
+      holdings.reduce(
+        (
+          sum,
+          item
+        ) =>
+          sum +
+          (
+            Number(
+              item.targetWeight
+            ) || 0
+          ),
+        0
+      );
+
+
+    const unallocated =
+      Math.max(
+        0,
+        portfolio.totalValue *
+        (
+          (
+            100 -
+            targetTotal
+          ) /
+          100
+        )
+      );
+
+
+    const net =
+      totalAdd -
+      totalReduce;
+
+
+    return {
+
+      totalAdd:
+        totalAdd,
+
+      totalReduce:
+        totalReduce,
+
+      net:
+        net,
+
+      unallocated:
+        unallocated,
+
+      targetTotal:
+        targetTotal
+
+    };
+
+  }
+
+
+  /* =========================================================
      화면 출력
   ========================================================= */
 
@@ -1614,6 +1878,8 @@
       updateSummary();
 
       updateTargetTotal();
+
+      updateRebalanceSummary();
 
       return;
 
@@ -2097,6 +2363,8 @@
 
     updateTargetTotal();
 
+    updateRebalanceSummary();
+
   }
 
 
@@ -2170,6 +2438,208 @@
 
     element.innerHTML =
       message;
+
+  }
+
+
+  /* =========================================================
+     리밸런싱 요약 출력
+  ========================================================= */
+
+  function updateRebalanceSummary() {
+
+    const summary =
+      calculateRebalanceSummary();
+
+
+    document.getElementById(
+      "totalAddAmount"
+    ).textContent =
+      money(
+        summary.totalAdd
+      );
+
+
+    document.getElementById(
+      "totalReduceAmount"
+    ).textContent =
+      money(
+        summary.totalReduce
+      );
+
+
+    const netElement =
+      document.getElementById(
+        "netRebalanceAmount"
+      );
+
+
+    netElement.textContent =
+      money(
+        Math.abs(
+          summary.net
+        )
+      );
+
+
+    if (
+      summary.net > 0.01
+    ) {
+
+      netElement.className =
+        "rebalance-value positive";
+
+      netElement.textContent =
+        "+ " +
+        money(
+          summary.net
+        );
+
+    }
+
+    else if (
+      summary.net < -0.01
+    ) {
+
+      netElement.className =
+        "rebalance-value negative";
+
+      netElement.textContent =
+        "- " +
+        money(
+          Math.abs(
+            summary.net
+          )
+        );
+
+    }
+
+    else {
+
+      netElement.className =
+        "rebalance-value neutral";
+
+      netElement.textContent =
+        "$0.00";
+
+    }
+
+
+    const unallocatedElement =
+      document.getElementById(
+        "unallocatedAmount"
+      );
+
+
+    unallocatedElement.textContent =
+      money(
+        summary.unallocated
+      );
+
+
+    if (
+      summary.unallocated > 0.01
+    ) {
+
+      unallocatedElement.className =
+        "rebalance-value neutral";
+
+    }
+
+    else {
+
+      unallocatedElement.className =
+        "rebalance-value positive";
+
+    }
+
+
+    const description =
+      document.getElementById(
+        "rebalanceDescription"
+      );
+
+
+    if (
+      holdings.length === 0
+    ) {
+
+      description.textContent =
+        "종목을 추가하면 리밸런싱에 필요한 금액을 계산합니다.";
+
+      return;
+
+    }
+
+
+    if (
+      summary.targetTotal > 100.001
+    ) {
+
+      description.innerHTML =
+        '<span class="negative">' +
+        "⚠️ 목표 비중 합계가 100%를 초과했습니다. " +
+        "목표 비중을 100% 이하로 조정하세요." +
+        "</span>";
+
+      return;
+
+    }
+
+
+    if (
+      summary.targetTotal < 99.999
+    ) {
+
+      description.innerHTML =
+        "현재 목표 비중 합계는 " +
+        "<strong>" +
+        percent(
+          summary.targetTotal
+        ) +
+        "</strong>입니다. " +
+        "나머지 " +
+        "<strong>" +
+        percent(
+          100 -
+          summary.targetTotal
+        ) +
+        "</strong>는 현금 또는 미배분 영역입니다.";
+
+      return;
+
+    }
+
+
+    if (
+      summary.totalAdd < 0.01 &&
+      summary.totalReduce < 0.01
+    ) {
+
+      description.innerHTML =
+        '<span class="positive">' +
+        "✓ 현재 포트폴리오가 목표 비중과 거의 일치합니다." +
+        "</span>";
+
+      return;
+
+    }
+
+
+    description.innerHTML =
+      "목표 비중 100% 기준으로 " +
+      "<strong>" +
+      money(
+        summary.totalAdd
+      ) +
+      "</strong>" +
+      "을 추가매수하고, " +
+      "<strong>" +
+      money(
+        summary.totalReduce
+      ) +
+      "</strong>" +
+      "을 매도하면 목표 비중에 맞출 수 있습니다.";
 
   }
 
@@ -2271,11 +2741,6 @@
         ticker
       ];
 
-
-    /*
-      재무 데이터는 7일 동안 캐시.
-      매번 API를 호출하지 않도록 함.
-    */
 
     if (
       cached &&
@@ -2472,9 +2937,6 @@
     data
   ) {
 
-    let score = 17.5;
-
-
     const revenueGrowth =
       safeNumber(
         data[
@@ -2490,33 +2952,6 @@
         ]
       );
 
-
-    /*
-      매출 성장 최대 17.5점
-    */
-
-    if (
-      revenueGrowth !== null
-    ) {
-
-      score +=
-        clamp(
-          revenueGrowth,
-          -20,
-          30
-        ) *
-        (
-          17.5 /
-          50
-        );
-
-    }
-
-
-    /*
-      위 계산의 기준점을 조정하여
-      0% 성장 부근에서 중립점이 되도록 함.
-    */
 
     let revenuePart =
       8.75;
@@ -2674,15 +3109,6 @@
     }
 
 
-    /*
-      시가총액 기준:
-      1T 이상 = 15
-      500B = 13
-      100B = 10
-      10B = 6
-      1B 이하 = 3
-    */
-
     if (
       marketCap >=
       1000000000000
@@ -2753,10 +3179,6 @@
 
     }
 
-
-    /*
-      Beta가 낮을수록 점수 높음.
-    */
 
     if (
       beta <= 0.7
@@ -2968,11 +3390,6 @@
     }
 
 
-    /*
-      모든 종목의 점수가 같으면
-      동일 비중으로 배분.
-    */
-
     const totalScore =
       scoredItems.reduce(
         (
@@ -3009,10 +3426,6 @@
     }
 
 
-    /*
-      점수 비례 배분.
-    */
-
     scoredItems.forEach(
       item => {
 
@@ -3027,13 +3440,7 @@
     );
 
 
-    /*
-      한 종목이 지나치게 큰 비중을
-      차지하지 않도록 최대 30%.
-    */
-
     const MAX_WEIGHT = 30;
-
 
     let excess = 0;
 
@@ -3058,11 +3465,6 @@
       }
     );
 
-
-    /*
-      상한에 걸리지 않은 종목에
-      초과분 재분배.
-    */
 
     if (
       excess > 0
@@ -3122,11 +3524,6 @@
 
     }
 
-
-    /*
-      소수점 둘째 자리까지 맞추고
-      총합을 100%에 맞춤.
-    */
 
     let roundedTotal = 0;
 
@@ -3358,10 +3755,6 @@
 
         }
 
-
-        /*
-          API 요청 간 간격.
-        */
 
         if (
           i <
