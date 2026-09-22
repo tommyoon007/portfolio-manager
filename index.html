@@ -748,12 +748,17 @@
 
       <strong>추천 비중 엔진</strong><br>
 
-      성장성 35% + 수익성 25% + 기업규모 15% +
-      위험도 15% + 밸류에이션 10%를 이용해
+      성장성 30% + 수익성 25% + 재무건전성 20% +
+      밸류에이션 15% + 위험도 10%를 이용해
       종목별 점수를 계산합니다.
 
-      추천비중은 점수를 기준으로 자동 배분하며,
-      현재 단계에서는 규칙 기반 참고값입니다.
+      성장성은 매출/이익 증가율,
+      수익성은 영업이익률/ROE,
+      재무건전성은 부채비율/유동비율,
+      밸류에이션은 PEG/PER/PSR/EV·EBITDA,
+      위험도는 Beta를 사용합니다.
+
+      데이터가 없는 항목은 중립 점수로 처리합니다.
 
       <br><br>
 
@@ -2930,7 +2935,7 @@
 
   /* =========================================================
      성장성 점수
-     35점
+     30점
   ========================================================= */
 
   function growthScore(
@@ -2953,51 +2958,39 @@
       );
 
 
-    let revenuePart =
-      8.75;
+    const revenuePart =
+      revenueGrowth === null
+
+        ? 7.5
+
+        : clamp(
+            7.5 +
+            revenueGrowth *
+            0.25,
+            0,
+            15
+          );
 
 
-    if (
-      revenueGrowth !== null
-    ) {
+    const earningsPart =
+      earningsGrowth === null
 
-      revenuePart =
-        clamp(
-          8.75 +
-          revenueGrowth *
-          0.2917,
-          0,
-          17.5
-        );
+        ? 7.5
 
-    }
-
-
-    let earningsPart =
-      8.75;
-
-
-    if (
-      earningsGrowth !== null
-    ) {
-
-      earningsPart =
-        clamp(
-          8.75 +
-          earningsGrowth *
-          0.2917,
-          0,
-          17.5
-        );
-
-    }
+        : clamp(
+            7.5 +
+            earningsGrowth *
+            0.25,
+            0,
+            15
+          );
 
 
     return clamp(
       revenuePart +
       earningsPart,
       0,
-      35
+      30
     );
 
   }
@@ -3011,14 +3004,6 @@
   function profitabilityScore(
     data
   ) {
-
-    let operatingPart =
-      12.5;
-
-
-    let roePart =
-      12.5;
-
 
     const operatingMargin =
       safeNumber(
@@ -3036,40 +3021,38 @@
       );
 
 
-    if (
-      operatingMargin !== null
-    ) {
+    const operatingPart =
+      operatingMargin === null
 
-      operatingPart =
-        clamp(
-          operatingMargin *
-          100 /
-          40 *
-          12.5,
-          0,
-          12.5
-        );
+        ? 6.25
 
-    }
+        : clamp(
+            (
+              operatingMargin *
+              100 /
+              40
+            ) *
+            12.5,
+            0,
+            12.5
+          );
 
 
-    if (
-      roe !== null
-    ) {
+    const roePart =
+      roe === null
 
-      roePart =
-        clamp(
-          (
-            roe *
-            100
-          ) /
-          50 *
-          12.5,
-          0,
-          12.5
-        );
+        ? 6.25
 
-    }
+        : clamp(
+            (
+              roe *
+              100 /
+              50
+            ) *
+            12.5,
+            0,
+            12.5
+          );
 
 
     return clamp(
@@ -3083,80 +3066,446 @@
 
 
   /* =========================================================
-     기업 규모 점수
-     15점
+     재무건전성 점수
+     20점
+
+     부채비율 10점
+     유동비율 10점
   ========================================================= */
 
-  function sizeScore(
+  function financialStrengthScore(
     data
   ) {
 
-    const marketCap =
+    const debtToEquity =
       safeNumber(
         data[
-          "MarketCapitalization"
+          "DebtToEquity"
         ]
       );
 
 
+    const currentRatio =
+      safeNumber(
+        data[
+          "CurrentRatio"
+        ]
+      );
+
+
+    let debtPart =
+      5;
+
+
+    let liquidityPart =
+      5;
+
+
     if (
-      marketCap === null ||
-      marketCap <= 0
+      debtToEquity !== null &&
+      debtToEquity >= 0
     ) {
 
-      return 7.5;
+      if (
+        debtToEquity <= 30
+      ) {
+
+        debtPart = 10;
+
+      }
+
+      else if (
+        debtToEquity <= 60
+      ) {
+
+        debtPart = 8;
+
+      }
+
+      else if (
+        debtToEquity <= 100
+      ) {
+
+        debtPart = 6;
+
+      }
+
+      else if (
+        debtToEquity <= 150
+      ) {
+
+        debtPart = 4;
+
+      }
+
+      else if (
+        debtToEquity <= 250
+      ) {
+
+        debtPart = 2;
+
+      }
+
+      else {
+
+        debtPart = 0;
+
+      }
 
     }
 
 
     if (
-      marketCap >=
-      1000000000000
+      currentRatio !== null &&
+      currentRatio >= 0
     ) {
 
-      return 15;
+      if (
+        currentRatio >= 2.0
+      ) {
+
+        liquidityPart = 10;
+
+      }
+
+      else if (
+        currentRatio >= 1.5
+      ) {
+
+        liquidityPart = 8;
+
+      }
+
+      else if (
+        currentRatio >= 1.2
+      ) {
+
+        liquidityPart = 6;
+
+      }
+
+      else if (
+        currentRatio >= 1.0
+      ) {
+
+        liquidityPart = 4;
+
+      }
+
+      else if (
+        currentRatio >= 0.75
+      ) {
+
+        liquidityPart = 2;
+
+      }
+
+      else {
+
+        liquidityPart = 0;
+
+      }
+
+    }
+
+
+    return clamp(
+      debtPart +
+      liquidityPart,
+      0,
+      20
+    );
+
+  }
+
+
+  /* =========================================================
+     밸류에이션 점수
+     15점
+
+     PEG 4점
+     PER 4점
+     PSR 3점
+     EV/EBITDA 4점
+  ========================================================= */
+
+  function valuationScore(
+    data
+  ) {
+
+    const peg =
+      safeNumber(
+        data[
+          "PEGRatio"
+        ]
+      );
+
+
+    const pe =
+      safeNumber(
+        data[
+          "PERatio"
+        ]
+      );
+
+
+    const ps =
+      safeNumber(
+        data[
+          "PriceToSalesRatioTTM"
+        ]
+      );
+
+
+    const evEbitda =
+      safeNumber(
+        data[
+          "EVToEBITDA"
+        ]
+      );
+
+
+    let pegPart =
+      2;
+
+
+    let pePart =
+      2;
+
+
+    let psPart =
+      1.5;
+
+
+    let evPart =
+      2;
+
+
+    if (
+      peg !== null &&
+      peg > 0
+    ) {
+
+      if (
+        peg <= 0.8
+      ) {
+
+        pegPart = 4;
+
+      }
+
+      else if (
+        peg <= 1.2
+      ) {
+
+        pegPart = 3.5;
+
+      }
+
+      else if (
+        peg <= 1.8
+      ) {
+
+        pegPart = 3;
+
+      }
+
+      else if (
+        peg <= 2.5
+      ) {
+
+        pegPart = 2;
+
+      }
+
+      else if (
+        peg <= 4
+      ) {
+
+        pegPart = 1;
+
+      }
+
+      else {
+
+        pegPart = 0;
+
+      }
 
     }
 
 
     if (
-      marketCap >=
-      500000000000
+      pe !== null &&
+      pe > 0
     ) {
 
-      return 13;
+      if (
+        pe <= 15
+      ) {
+
+        pePart = 4;
+
+      }
+
+      else if (
+        pe <= 20
+      ) {
+
+        pePart = 3.5;
+
+      }
+
+      else if (
+        pe <= 30
+      ) {
+
+        pePart = 3;
+
+      }
+
+      else if (
+        pe <= 40
+      ) {
+
+        pePart = 2;
+
+      }
+
+      else if (
+        pe <= 60
+      ) {
+
+        pePart = 1;
+
+      }
+
+      else {
+
+        pePart = 0;
+
+      }
 
     }
 
 
     if (
-      marketCap >=
-      100000000000
+      ps !== null &&
+      ps > 0
     ) {
 
-      return 10;
+      if (
+        ps <= 2
+      ) {
+
+        psPart = 3;
+
+      }
+
+      else if (
+        ps <= 4
+      ) {
+
+        psPart = 2.5;
+
+      }
+
+      else if (
+        ps <= 8
+      ) {
+
+        psPart = 2;
+
+      }
+
+      else if (
+        ps <= 15
+      ) {
+
+        psPart = 1;
+
+      }
+
+      else {
+
+        psPart = 0;
+
+      }
 
     }
 
 
     if (
-      marketCap >=
-      10000000000
+      evEbitda !== null &&
+      evEbitda > 0
     ) {
 
-      return 6;
+      if (
+        evEbitda <= 10
+      ) {
+
+        evPart = 4;
+
+      }
+
+      else if (
+        evEbitda <= 15
+      ) {
+
+        evPart = 3.5;
+
+      }
+
+      else if (
+        evEbitda <= 20
+      ) {
+
+        evPart = 3;
+
+      }
+
+      else if (
+        evEbitda <= 30
+      ) {
+
+        evPart = 2;
+
+      }
+
+      else if (
+        evEbitda <= 50
+      ) {
+
+        evPart = 1;
+
+      }
+
+      else {
+
+        evPart = 0;
+
+      }
 
     }
 
 
-    return 3;
+    return clamp(
+      pegPart +
+      pePart +
+      psPart +
+      evPart,
+      0,
+      15
+    );
 
   }
 
 
   /* =========================================================
      위험도 점수
-     15점
+     10점
+
+     Beta가 낮을수록 높은 점수
   ========================================================= */
 
   function riskScore(
@@ -3175,7 +3524,7 @@
       beta === null
     ) {
 
-      return 7.5;
+      return 5;
 
     }
 
@@ -3184,7 +3533,7 @@
       beta <= 0.7
     ) {
 
-      return 15;
+      return 10;
 
     }
 
@@ -3193,7 +3542,7 @@
       beta <= 1.0
     ) {
 
-      return 13;
+      return 9;
 
     }
 
@@ -3202,7 +3551,7 @@
       beta <= 1.3
     ) {
 
-      return 10;
+      return 7;
 
     }
 
@@ -3211,7 +3560,7 @@
       beta <= 1.7
     ) {
 
-      return 7;
+      return 5;
 
     }
 
@@ -3220,86 +3569,19 @@
       beta <= 2.2
     ) {
 
-      return 4;
+      return 3;
 
     }
 
 
-    return 2;
-
-  }
-
-
-  /* =========================================================
-     밸류에이션 점수
-     10점
-  ========================================================= */
-
-  function valuationScore(
-    data
-  ) {
-
-    const peg =
-      safeNumber(
-        data[
-          "PEGRatio"
-        ]
-      );
-
-
-    if (
-      peg === null ||
-      peg <= 0
-    ) {
-
-      return 5;
-
-    }
-
-
-    if (
-      peg <= 0.8
-    ) {
-
-      return 10;
-
-    }
-
-
-    if (
-      peg <= 1.2
-    ) {
-
-      return 8;
-
-    }
-
-
-    if (
-      peg <= 1.8
-    ) {
-
-      return 6;
-
-    }
-
-
-    if (
-      peg <= 2.5
-    ) {
-
-      return 4;
-
-    }
-
-
-    return 2;
+    return 1;
 
   }
 
 
   /* =========================================================
      추천 점수 계산
+     총 100점
   ========================================================= */
 
   function calculateRecommendationScore(
@@ -3318,14 +3600,8 @@
       );
 
 
-    const size =
-      sizeScore(
-        data
-      );
-
-
-    const risk =
-      riskScore(
+    const financialStrength =
+      financialStrengthScore(
         data
       );
 
@@ -3336,12 +3612,18 @@
       );
 
 
+    const risk =
+      riskScore(
+        data
+      );
+
+
     const total =
       growth +
       profitability +
-      size +
-      risk +
-      valuation;
+      financialStrength +
+      valuation +
+      risk;
 
 
     return {
@@ -3359,14 +3641,14 @@
       profitability:
         profitability,
 
-      size:
-        size,
-
-      risk:
-        risk,
+      financialStrength:
+        financialStrength,
 
       valuation:
-        valuation
+        valuation,
+
+      risk:
+        risk
 
     };
 
@@ -3375,6 +3657,8 @@
 
   /* =========================================================
      추천 점수 → 비중 변환
+
+     최대 30% 제한
   ========================================================= */
 
   function convertScoresToWeights(
@@ -3440,9 +3724,12 @@
     );
 
 
-    const MAX_WEIGHT = 30;
+    const MAX_WEIGHT =
+      30;
 
-    let excess = 0;
+
+    let excess =
+      0;
 
 
     scoredItems.forEach(
@@ -3470,17 +3757,34 @@
       excess > 0
     ) {
 
-      const available =
-        scoredItems.filter(
-          item =>
-            item.weight <
-            MAX_WEIGHT
-        );
+      let remaining =
+        excess;
 
 
-      if (
-        available.length > 0
+      for (
+        let pass = 0;
+        pass < 10 &&
+        remaining > 0.0001;
+        pass++
       ) {
+
+        const available =
+          scoredItems.filter(
+            item =>
+              item.weight <
+              MAX_WEIGHT -
+              0.0001
+          );
+
+
+        if (
+          available.length === 0
+        ) {
+
+          break;
+
+        }
+
 
         const availableScore =
           available.reduce(
@@ -3494,38 +3798,68 @@
           );
 
 
+        let distributed =
+          0;
+
+
         available.forEach(
           item => {
 
             const add =
               availableScore > 0
 
-                ? excess *
+                ? remaining *
                   (
                     item.score /
                     availableScore
                   )
 
-                : excess /
+                : remaining /
                   available.length;
 
 
-            item.weight =
+            const room =
+              MAX_WEIGHT -
+              item.weight;
+
+
+            const actualAdd =
               Math.min(
-                MAX_WEIGHT,
-                item.weight +
+                room,
                 add
               );
 
+
+            item.weight +=
+              actualAdd;
+
+
+            distributed +=
+              actualAdd;
+
           }
         );
+
+
+        remaining -=
+          distributed;
+
+
+        if (
+          distributed <= 0.0001
+        ) {
+
+          break;
+
+        }
 
       }
 
     }
 
 
-    let roundedTotal = 0;
+    let roundedTotal =
+      0;
 
 
     scoredItems.forEach(
@@ -3546,7 +3880,7 @@
     );
 
 
-    const difference =
+    let difference =
       Number(
         (
           100 -
@@ -3563,36 +3897,111 @@
       ) >= 0.01
     ) {
 
-      const largest =
-        scoredItems.reduce(
-          (
-            best,
-            item
-          ) =>
-            !best ||
-            item.weight >
-            best.weight
+      const candidates =
+        scoredItems
+          .filter(
+            item =>
+              item.weight <
+              MAX_WEIGHT ||
+              difference < 0
+          )
+          .sort(
+            (
+              a,
+              b
+            ) =>
+              b.score -
+              a.score
+          );
 
-              ? item
 
-              : best,
-          null
-        );
-
-
-      if (
-        largest
+      for (
+        const item of candidates
       ) {
 
-        largest.weight =
-          Number(
-            (
-              largest.weight +
+        if (
+          Math.abs(
+            difference
+          ) < 0.01
+        ) {
+
+          break;
+
+        }
+
+
+        if (
+          difference > 0
+        ) {
+
+          const room =
+            MAX_WEIGHT -
+            item.weight;
+
+
+          const add =
+            Math.min(
+              room,
               difference
-            ).toFixed(
-              2
-            )
-          );
+            );
+
+
+          item.weight =
+            Number(
+              (
+                item.weight +
+                add
+              ).toFixed(
+                2
+              )
+            );
+
+
+          difference =
+            Number(
+              (
+                difference -
+                add
+              ).toFixed(
+                2
+              )
+            );
+
+        }
+
+        else {
+
+          const remove =
+            Math.min(
+              item.weight,
+              Math.abs(
+                difference
+              )
+            );
+
+
+          item.weight =
+            Number(
+              (
+                item.weight -
+                remove
+              ).toFixed(
+                2
+              )
+            );
+
+
+          difference =
+            Number(
+              (
+                difference +
+                remove
+              ).toFixed(
+                2
+              )
+            );
+
+        }
 
       }
 
@@ -3707,7 +4116,8 @@
             );
 
 
-          let reason = "";
+          let reason =
+            "";
 
 
           reason =
@@ -3715,12 +4125,12 @@
             result.growth.toFixed(1) +
             " / 수익 " +
             result.profitability.toFixed(1) +
-            " / 규모 " +
-            result.size.toFixed(1) +
-            " / 위험 " +
-            result.risk.toFixed(1) +
+            " / 건전성 " +
+            result.financialStrength.toFixed(1) +
             " / 밸류 " +
-            result.valuation.toFixed(1);
+            result.valuation.toFixed(1) +
+            " / 위험 " +
+            result.risk.toFixed(1);
 
 
           scoredItems.push({
