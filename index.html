@@ -180,7 +180,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 1650px;
+      min-width: 1700px;
     }
 
     th {
@@ -378,9 +378,121 @@
       color: #fff;
     }
 
+    /* =========================================================
+       추천 세부점수
+    ========================================================= */
+
+    .detail-row {
+      background: #0d131a;
+    }
+
+    .detail-cell {
+      padding: 14px 12px !important;
+      white-space: normal !important;
+      text-align: left !important;
+      border-bottom: 1px solid #283241;
+    }
+
+    .detail-panel {
+      background: #111821;
+      border: 1px solid #283241;
+      border-radius: 12px;
+      padding: 14px;
+    }
+
+    .detail-title {
+      font-size: 13px;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 12px;
+    }
+
+    .detail-score-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .detail-score-item {
+      background: #0b1016;
+      border: 1px solid #202936;
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .detail-score-label {
+      color: #8994a3;
+      font-size: 11px;
+      margin-bottom: 5px;
+    }
+
+    .detail-score-value {
+      color: #fff;
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .detail-total {
+      background: #171e27;
+      border: 1px solid #2d3948;
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+
+    .detail-total strong {
+      color: #fff;
+      font-size: 18px;
+    }
+
+    .detail-data {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+
+    .detail-data-item {
+      background: #0b1016;
+      border-radius: 8px;
+      padding: 8px;
+    }
+
+    .detail-data-label {
+      color: #707b89;
+      font-size: 10px;
+      margin-bottom: 3px;
+    }
+
+    .detail-data-value {
+      color: #d9dee5;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .detail-quality {
+      margin-top: 10px;
+      color: #8994a3;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .detail-neutral {
+      color: #d6a95e;
+    }
+
     @media (max-width: 900px) {
 
       .rebalance-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .detail-score-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .detail-data {
         grid-template-columns: repeat(2, 1fr);
       }
 
@@ -418,6 +530,14 @@
 
       .rebalance-value {
         font-size: 16px;
+      }
+
+      .detail-score-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .detail-data {
+        grid-template-columns: 1fr 1fr;
       }
 
     }
@@ -977,7 +1097,10 @@
               : null,
 
           recommendationReason:
-            item.recommendationReason || ""
+            item.recommendationReason || "",
+
+          recommendationDetails:
+            item.recommendationDetails || null
 
         }));
 
@@ -1312,7 +1435,10 @@
             null,
 
           recommendationReason:
-            ""
+            "",
+
+          recommendationDetails:
+            null
 
         });
 
@@ -1614,6 +1740,497 @@
     saveHoldings();
 
     renderPortfolio();
+
+  }
+
+
+  /* =========================================================
+     추천 세부점수 표시
+  ========================================================= */
+
+  function toggleRecommendationDetails(
+    ticker
+  ) {
+
+    const row =
+      document.getElementById(
+        "detail-" +
+        ticker
+      );
+
+
+    if (!row) {
+
+      return;
+
+    }
+
+
+    if (
+      row.style.display === "none" ||
+      row.style.display === ""
+    ) {
+
+      row.style.display =
+        "table-row";
+
+    } else {
+
+      row.style.display =
+        "none";
+
+    }
+
+  }
+
+
+  /* =========================================================
+     추천 세부점수 HTML
+  ========================================================= */
+
+  function recommendationDetailsHtml(
+    item
+  ) {
+
+    const details =
+      item.recommendationDetails;
+
+
+    if (!details) {
+
+      return `
+
+        <tr
+          id="detail-${escapeHtml(item.ticker)}"
+          class="detail-row"
+          style="display:none;"
+        >
+
+          <td
+            colspan="15"
+            class="detail-cell"
+          >
+
+            <div class="detail-panel">
+
+              <div class="detail-title">
+                ${escapeHtml(item.ticker)} 추천 세부점수
+              </div>
+
+              <div class="neutral">
+                세부점수 데이터가 없습니다.
+                다시 추천 비중을 계산하세요.
+              </div>
+
+            </div>
+
+          </td>
+
+        </tr>
+
+      `;
+
+    }
+
+
+    const growth =
+      Number(details.growth) || 0;
+
+    const profitability =
+      Number(details.profitability) || 0;
+
+    const financialStrength =
+      Number(details.financialStrength) || 0;
+
+    const valuation =
+      Number(details.valuation) || 0;
+
+    const risk =
+      Number(details.risk) || 0;
+
+    const score =
+      Number(details.score) || 0;
+
+    const quality =
+      details.dataQuality || {};
+
+    const qualityPercent =
+      Number(quality.percent) || 0;
+
+
+    const revenueGrowth =
+      details.metrics
+        ? details.metrics.revenueGrowth
+        : null;
+
+    const earningsGrowth =
+      details.metrics
+        ? details.metrics.earningsGrowth
+        : null;
+
+    const operatingMargin =
+      details.metrics
+        ? details.metrics.operatingMargin
+        : null;
+
+    const roe =
+      details.metrics
+        ? details.metrics.roe
+        : null;
+
+    const debtToEquity =
+      details.metrics
+        ? details.metrics.debtToEquity
+        : null;
+
+    const currentRatio =
+      details.metrics
+        ? details.metrics.currentRatio
+        : null;
+
+    const cashflowMargin =
+      details.metrics
+        ? details.metrics.cashflowMargin
+        : null;
+
+    const peg =
+      details.metrics
+        ? details.metrics.peg
+        : null;
+
+    const pe =
+      details.metrics
+        ? details.metrics.pe
+        : null;
+
+    const ps =
+      details.metrics
+        ? details.metrics.ps
+        : null;
+
+    const evEbitda =
+      details.metrics
+        ? details.metrics.evEbitda
+        : null;
+
+    const beta =
+      details.metrics
+        ? details.metrics.beta
+        : null;
+
+
+    return `
+
+      <tr
+        id="detail-${escapeHtml(item.ticker)}"
+        class="detail-row"
+        style="display:none;"
+      >
+
+        <td
+          colspan="15"
+          class="detail-cell"
+        >
+
+          <div class="detail-panel">
+
+            <div class="detail-title">
+              📊 ${escapeHtml(item.ticker)} 추천 세부점수
+            </div>
+
+
+            <div class="detail-score-grid">
+
+              <div class="detail-score-item">
+
+                <div class="detail-score-label">
+                  성장성
+                </div>
+
+                <div class="detail-score-value">
+                  ${growth.toFixed(1)} / 30
+                </div>
+
+              </div>
+
+
+              <div class="detail-score-item">
+
+                <div class="detail-score-label">
+                  수익성
+                </div>
+
+                <div class="detail-score-value">
+                  ${profitability.toFixed(1)} / 25
+                </div>
+
+              </div>
+
+
+              <div class="detail-score-item">
+
+                <div class="detail-score-label">
+                  재무건전성·현금흐름
+                </div>
+
+                <div class="detail-score-value">
+                  ${financialStrength.toFixed(1)} / 20
+                </div>
+
+              </div>
+
+
+              <div class="detail-score-item">
+
+                <div class="detail-score-label">
+                  밸류에이션
+                </div>
+
+                <div class="detail-score-value">
+                  ${valuation.toFixed(1)} / 15
+                </div>
+
+              </div>
+
+
+              <div class="detail-score-item">
+
+                <div class="detail-score-label">
+                  위험도
+                </div>
+
+                <div class="detail-score-value">
+                  ${risk.toFixed(1)} / 10
+                </div>
+
+              </div>
+
+            </div>
+
+
+            <div class="detail-total">
+
+              총 추천점수:
+              <strong>${score.toFixed(1)} / 100</strong>
+
+              <br>
+
+              추천비중:
+              <strong>
+                ${
+                  item.recommendedWeight !== null &&
+                  item.recommendedWeight !== undefined
+                    ? Number(
+                        item.recommendedWeight
+                      ).toFixed(2) + "%"
+                    : "-"
+                }
+              </strong>
+
+            </div>
+
+
+            <div class="detail-title">
+              🔎 실제 사용된 재무 데이터
+            </div>
+
+
+            <div class="detail-data">
+
+              <div class="detail-data-item">
+
+                <div class="detail-data-label">
+                  매출 성장률
+                </div>
+
+                <div class="detail-data-value">
+                  ${formatMetricPercent(revenueGrowth)}
+                </div>
+
+              </div>
+
+
+              <div class="detail-data-item">
+
+                <div class="detail-data-label">
+                  이익 성장률
+                </div>
+
+                <div class="detail-data-value">
+                  ${formatMetricPercent(earningsGrowth)}
+                </div>
+
+              </div>
+
+
+              <div class="detail-data-item">
+
+                <div class="detail-data-label">
+                  영업이익률
+                </div>
+
+                <div class="detail-data-value">
+                  ${formatMetricPercent(operatingMargin)}
+                </div>
+
+              </div>
+
+
+              <div class="detail-data-item">
+
+                <div class="detail-data-label">
+                  ROE
+                </div>
+
+                <div class="detail-data-value">
+                  ${formatMetricPercent(roe)}
+                </div>
+
+              </div>
+
+
+              <div class="detail-data-item">
+
+                <div class="detail-data-label">
+                  Debt / Equity
+                </div>
+
+                <div class="detail-data-value">
+                  ${formatMetricNumber(debtToEquity)}
+                </div>
+
+              </div>
+
+
+              <div class="detail-data-item">
+
+                <div class="detail-data-label">
+                  Current Ratio
+                </div>
+
+                <div class="detail-data-value">
+                  ${formatMetricNumber(currentRatio)}
+                </div>
+
+              </div>
+
+
+              <div class="detail-data-item">
+
+                <div class="detail-data-label">
+                  영업현금흐름률
+                </div>
+
+                <div class="detail-data-value">
+                  ${formatMetricPercent(cashflowMargin)}
+                </div>
+
+              </div>
+
+
+              <div class="detail-data-item">
+
+                <div class="detail-data-label">
+                  PEG
+                </div>
+
+                <div class="detail-data-value">
+                  ${formatMetricNumber(peg)}
+                </div>
+
+              </div>
+
+
+              <div class="detail-data-item">
+
+                <div class="detail-data-label">
+                  PER
+                </div>
+
+                <div class="detail-data-value">
+                  ${formatMetricNumber(pe)}
+                </div>
+
+              </div>
+
+
+              <div class="detail-data-item">
+
+                <div class="detail-data-label">
+                  PSR
+                </div>
+
+                <div class="detail-data-value">
+                  ${formatMetricNumber(ps)}
+                </div>
+
+              </div>
+
+
+              <div class="detail-data-item">
+
+                <div class="detail-data-label">
+                  EV / EBITDA
+                </div>
+
+                <div class="detail-data-value">
+                  ${formatMetricNumber(evEbitda)}
+                </div>
+
+              </div>
+
+
+              <div class="detail-data-item">
+
+                <div class="detail-data-label">
+                  Beta
+                </div>
+
+                <div class="detail-data-value">
+                  ${formatMetricNumber(beta)}
+                </div>
+
+              </div>
+
+            </div>
+
+
+            <div class="detail-quality">
+
+              데이터 확보율:
+              <strong>
+                ${qualityPercent.toFixed(0)}%
+              </strong>
+
+              ${
+                quality.available !== undefined &&
+                quality.total !== undefined
+
+                  ? " (" +
+                    quality.available +
+                    "/" +
+                    quality.total +
+                    "개 항목)"
+                  : ""
+              }
+
+              <br>
+
+              데이터가 없는 항목은
+              <span class="detail-neutral">
+                중립점수
+              </span>
+              로 계산됩니다.
+
+            </div>
+
+          </div>
+
+        </td>
+
+      </tr>
+
+    `;
 
   }
 
@@ -2233,6 +2850,20 @@
                         )}
                       </div>
 
+                      <button
+                        class="button-secondary button-small"
+                        style="margin-top:6px;"
+                        onclick="
+                          toggleRecommendationDetails(
+                            '${escapeHtml(
+                              item.ticker
+                            )}'
+                          )
+                        "
+                      >
+                        세부보기
+                      </button>
+
                     `
 
                     : "-"
@@ -2386,6 +3017,14 @@
               </td>
 
             </tr>
+
+            ${
+              score !== null
+                ? recommendationDetailsHtml(
+                    item
+                  )
+                : ""
+            }
 
           `;
 
@@ -3000,9 +3639,6 @@
   /* =========================================================
      성장성 점수
      30점
-
-     매출 성장 15
-     이익 성장 15
   ========================================================= */
 
   function growthScore(
@@ -3066,9 +3702,6 @@
   /* =========================================================
      수익성 점수
      25점
-
-     영업이익률 12.5
-     ROE 12.5
   ========================================================= */
 
   function profitabilityScore(
@@ -3138,13 +3771,6 @@
   /* =========================================================
      재무건전성 + 현금흐름 점수
      20점
-
-     Debt/Equity 7점
-     Current Ratio 6점
-     Operating Cash Flow 7점
-
-     현금흐름은 기업 규모에 따라 절대값이 크게 달라지므로
-     매출 대비 영업현금흐름 비율을 우선 사용합니다.
   ========================================================= */
 
   function financialStrengthScore(
@@ -3201,10 +3827,6 @@
       3.5;
 
 
-    /*
-      부채비율
-    */
-
     if (
       debtToEquity !== null &&
       debtToEquity >= 0
@@ -3259,10 +3881,6 @@
     }
 
 
-    /*
-      유동비율
-    */
-
     if (
       currentRatio !== null &&
       currentRatio >= 0
@@ -3316,20 +3934,6 @@
 
     }
 
-
-    /*
-      영업현금흐름
-
-      매출 대비 영업현금흐름률을 사용합니다.
-
-      예:
-      20% 이상 = 매우 강함
-      15% 이상 = 강함
-      10% 이상 = 양호
-      5% 이상 = 보통
-      0% 이상 = 낮음
-      음수 = 0점
-    */
 
     if (
       operatingCashflow !== null &&
@@ -3397,11 +4001,6 @@
       operatingCashflow !== null
     ) {
 
-      /*
-        매출 데이터가 없으면
-        현금흐름 자체는 중립으로 처리
-      */
-
       cashflowPart = 3.5;
 
     }
@@ -3421,13 +4020,6 @@
   /* =========================================================
      밸류에이션 점수
      15점
-
-     PEG 4점
-     PER 4점
-     PSR 3점
-     EV/EBITDA 4점
-
-     데이터가 없으면 중립
   ========================================================= */
 
   function valuationScore(
@@ -3484,10 +4076,6 @@
       2;
 
 
-    /*
-      PEG
-    */
-
     if (
       peg !== null &&
       peg > 0
@@ -3541,10 +4129,6 @@
 
     }
 
-
-    /*
-      PER
-    */
 
     if (
       pe !== null &&
@@ -3600,10 +4184,6 @@
     }
 
 
-    /*
-      PSR
-    */
-
     if (
       ps !== null &&
       ps > 0
@@ -3649,10 +4229,6 @@
 
     }
 
-
-    /*
-      EV/EBITDA
-    */
 
     if (
       evEbitda !== null &&
@@ -3723,8 +4299,6 @@
   /* =========================================================
      위험도 점수
      10점
-
-     Beta가 낮을수록 높은 점수
   ========================================================= */
 
   function riskScore(
@@ -3808,31 +4382,99 @@
 
     const fields = [
 
-      "QuarterlyRevenueGrowthYOY",
+      [
+        "매출 성장률",
+        [
+          "QuarterlyRevenueGrowthYOY"
+        ]
+      ],
 
-      "QuarterlyEarningsGrowthYOY",
+      [
+        "이익 성장률",
+        [
+          "QuarterlyEarningsGrowthYOY"
+        ]
+      ],
 
-      "OperatingMarginTTM",
+      [
+        "영업이익률",
+        [
+          "OperatingMarginTTM"
+        ]
+      ],
 
-      "ReturnOnEquityTTM",
+      [
+        "ROE",
+        [
+          "ReturnOnEquityTTM"
+        ]
+      ],
 
-      "DebtToEquity",
+      [
+        "부채비율",
+        [
+          "DebtToEquity",
+          "DebtEquityRatio"
+        ]
+      ],
 
-      "CurrentRatio",
+      [
+        "유동비율",
+        [
+          "CurrentRatio"
+        ]
+      ],
 
-      "OperatingCashflow",
+      [
+        "영업현금흐름",
+        [
+          "OperatingCashflow",
+          "OperatingCashFlow"
+        ]
+      ],
 
-      "RevenueTTM",
+      [
+        "매출",
+        [
+          "RevenueTTM"
+        ]
+      ],
 
-      "PEGRatio",
+      [
+        "PEG",
+        [
+          "PEGRatio"
+        ]
+      ],
 
-      "PERatio",
+      [
+        "PER",
+        [
+          "PERatio",
+          "TrailingPE"
+        ]
+      ],
 
-      "PriceToSalesRatioTTM",
+      [
+        "PSR",
+        [
+          "PriceToSalesRatioTTM"
+        ]
+      ],
 
-      "EVToEBITDA",
+      [
+        "EV/EBITDA",
+        [
+          "EVToEBITDA"
+        ]
+      ],
 
-      "Beta"
+      [
+        "Beta",
+        [
+          "Beta"
+        ]
+      ]
 
     ];
 
@@ -3841,11 +4483,12 @@
 
 
     fields.forEach(
-      field => {
+      fieldInfo => {
 
         const value =
-          safeNumber(
-            data[field]
+          firstNumber(
+            data,
+            fieldInfo[1]
           );
 
 
@@ -3884,6 +4527,8 @@
   /* =========================================================
      추천 점수 계산
      총 100점
+
+     이번 단계에서 실제 세부 데이터도 함께 저장
   ========================================================= */
 
   function calculateRecommendationScore(
@@ -3934,6 +4579,138 @@
       );
 
 
+    const revenueGrowth =
+      safeNumber(
+        data[
+          "QuarterlyRevenueGrowthYOY"
+        ]
+      );
+
+
+    const earningsGrowth =
+      safeNumber(
+        data[
+          "QuarterlyEarningsGrowthYOY"
+        ]
+      );
+
+
+    const operatingMargin =
+      safeNumber(
+        data[
+          "OperatingMarginTTM"
+        ]
+      );
+
+
+    const roe =
+      safeNumber(
+        data[
+          "ReturnOnEquityTTM"
+        ]
+      );
+
+
+    const debtToEquity =
+      firstNumber(
+        data,
+        [
+          "DebtToEquity",
+          "DebtEquityRatio"
+        ]
+      );
+
+
+    const currentRatio =
+      firstNumber(
+        data,
+        [
+          "CurrentRatio"
+        ]
+      );
+
+
+    const operatingCashflow =
+      firstNumber(
+        data,
+        [
+          "OperatingCashflow",
+          "OperatingCashFlow"
+        ]
+      );
+
+
+    const revenueTTM =
+      firstNumber(
+        data,
+        [
+          "RevenueTTM"
+        ]
+      );
+
+
+    let cashflowMargin =
+      null;
+
+
+    if (
+      operatingCashflow !== null &&
+      revenueTTM !== null &&
+      revenueTTM > 0
+    ) {
+
+      cashflowMargin =
+        (
+          operatingCashflow /
+          revenueTTM
+        ) *
+        100;
+
+    }
+
+
+    const peg =
+      safeNumber(
+        data[
+          "PEGRatio"
+        ]
+      );
+
+
+    const pe =
+      firstNumber(
+        data,
+        [
+          "PERatio",
+          "TrailingPE"
+        ]
+      );
+
+
+    const ps =
+      safeNumber(
+        data[
+          "PriceToSalesRatioTTM"
+        ]
+      );
+
+
+    const evEbitda =
+      safeNumber(
+        data[
+          "EVToEBITDA"
+        ]
+      );
+
+
+    const beta =
+      safeNumber(
+        data[
+          "Beta"
+        ]
+      );
+
+
     return {
 
       score:
@@ -3959,7 +4736,47 @@
         risk,
 
       dataQuality:
-        quality
+        quality,
+
+      metrics: {
+
+        revenueGrowth:
+          revenueGrowth,
+
+        earningsGrowth:
+          earningsGrowth,
+
+        operatingMargin:
+          operatingMargin,
+
+        roe:
+          roe,
+
+        debtToEquity:
+          debtToEquity,
+
+        currentRatio:
+          currentRatio,
+
+        cashflowMargin:
+          cashflowMargin,
+
+        peg:
+          peg,
+
+        pe:
+          pe,
+
+        ps:
+          ps,
+
+        evEbitda:
+          evEbitda,
+
+        beta:
+          beta
+
+      }
 
     };
 
@@ -3968,7 +4785,6 @@
 
   /* =========================================================
      추천 점수 → 비중 변환
-
      최대 30% 제한
   ========================================================= */
 
@@ -4463,7 +5279,10 @@
               reason,
 
             weight:
-              0
+              0,
+
+            details:
+              result
 
           });
 
@@ -4530,6 +5349,36 @@
           result.item
             .recommendationReason =
             result.reason;
+
+
+          result.item
+            .recommendationDetails = {
+
+              score:
+                result.details.score,
+
+              growth:
+                result.details.growth,
+
+              profitability:
+                result.details.profitability,
+
+              financialStrength:
+                result.details.financialStrength,
+
+              valuation:
+                result.details.valuation,
+
+              risk:
+                result.details.risk,
+
+              dataQuality:
+                result.details.dataQuality,
+
+              metrics:
+                result.details.metrics
+
+            };
 
         }
       );
@@ -4995,6 +5844,55 @@
       ) +
       "%"
     );
+
+  }
+
+
+  function formatMetricPercent(
+    value
+  ) {
+
+    if (
+      value === null ||
+      value === undefined ||
+      !Number.isFinite(
+        Number(value)
+      )
+    ) {
+
+      return "데이터 없음";
+
+    }
+
+
+    return (
+      Number(value)
+      .toFixed(2) +
+      "%"
+    );
+
+  }
+
+
+  function formatMetricNumber(
+    value
+  ) {
+
+    if (
+      value === null ||
+      value === undefined ||
+      !Number.isFinite(
+        Number(value)
+      )
+    ) {
+
+      return "데이터 없음";
+
+    }
+
+
+    return Number(value)
+      .toFixed(2);
 
   }
 
