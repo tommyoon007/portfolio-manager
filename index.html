@@ -746,19 +746,48 @@
 
     <div class="recommend-info">
 
-      <strong>추천 비중 엔진</strong><br>
+      <strong>추천 비중 엔진 v2</strong><br>
 
-      성장성 30% + 수익성 25% + 재무건전성 20% +
+      성장성 30% + 수익성 25% + 재무건전성·현금흐름 20% +
       밸류에이션 15% + 위험도 10%를 이용해
       종목별 점수를 계산합니다.
 
-      성장성은 매출/이익 증가율,
-      수익성은 영업이익률/ROE,
-      재무건전성은 부채비율/유동비율,
-      밸류에이션은 PEG/PER/PSR/EV·EBITDA,
-      위험도는 Beta를 사용합니다.
+      <br><br>
 
-      데이터가 없는 항목은 중립 점수로 처리합니다.
+      <strong>성장성</strong>:
+      매출 성장률 + 이익 성장률
+
+      <br>
+
+      <strong>수익성</strong>:
+      영업이익률 + ROE
+
+      <br>
+
+      <strong>재무건전성·현금흐름</strong>:
+      부채비율 + 유동비율 + 영업현금흐름
+
+      <br>
+
+      <strong>밸류에이션</strong>:
+      PEG + PER + PSR + EV/EBITDA
+
+      <br>
+
+      <strong>위험도</strong>:
+      Beta가 낮을수록 높은 점수
+
+      <br><br>
+
+      데이터가 없는 항목은 해당 항목의
+      <strong>중립점수</strong>를 사용합니다.
+      따라서 특정 데이터가 없다고 해서
+      해당 종목 전체가 자동으로 불리해지지는 않습니다.
+
+      <br><br>
+
+      추천비중은 종목당 최대 <strong>30%</strong>로 제한하고,
+      남은 비중은 점수에 따라 다시 배분합니다.
 
       <br><br>
 
@@ -2913,6 +2942,41 @@
 
 
   /* =========================================================
+     여러 필드 중 실제 값이 있는 필드 선택
+  ========================================================= */
+
+  function firstNumber(
+    data,
+    fields
+  ) {
+
+    for (
+      const field of fields
+    ) {
+
+      const value =
+        safeNumber(
+          data[field]
+        );
+
+
+      if (
+        value !== null
+      ) {
+
+        return value;
+
+      }
+
+    }
+
+
+    return null;
+
+  }
+
+
+  /* =========================================================
      0~100 범위 제한
   ========================================================= */
 
@@ -2936,6 +3000,9 @@
   /* =========================================================
      성장성 점수
      30점
+
+     매출 성장 15
+     이익 성장 15
   ========================================================= */
 
   function growthScore(
@@ -2999,6 +3066,9 @@
   /* =========================================================
      수익성 점수
      25점
+
+     영업이익률 12.5
+     ROE 12.5
   ========================================================= */
 
   function profitabilityScore(
@@ -3066,11 +3136,15 @@
 
 
   /* =========================================================
-     재무건전성 점수
+     재무건전성 + 현금흐름 점수
      20점
 
-     부채비율 10점
-     유동비율 10점
+     Debt/Equity 7점
+     Current Ratio 6점
+     Operating Cash Flow 7점
+
+     현금흐름은 기업 규모에 따라 절대값이 크게 달라지므로
+     매출 대비 영업현금흐름 비율을 우선 사용합니다.
   ========================================================= */
 
   function financialStrengthScore(
@@ -3078,28 +3152,58 @@
   ) {
 
     const debtToEquity =
-      safeNumber(
-        data[
-          "DebtToEquity"
+      firstNumber(
+        data,
+        [
+          "DebtToEquity",
+          "DebtEquityRatio"
         ]
       );
 
 
     const currentRatio =
-      safeNumber(
-        data[
+      firstNumber(
+        data,
+        [
           "CurrentRatio"
         ]
       );
 
 
+    const operatingCashflow =
+      firstNumber(
+        data,
+        [
+          "OperatingCashflow",
+          "OperatingCashFlow"
+        ]
+      );
+
+
+    const revenueTTM =
+      firstNumber(
+        data,
+        [
+          "RevenueTTM"
+        ]
+      );
+
+
     let debtPart =
-      5;
+      3.5;
 
 
     let liquidityPart =
-      5;
+      3;
 
+
+    let cashflowPart =
+      3.5;
+
+
+    /*
+      부채비율
+    */
 
     if (
       debtToEquity !== null &&
@@ -3110,7 +3214,7 @@
         debtToEquity <= 30
       ) {
 
-        debtPart = 10;
+        debtPart = 7;
 
       }
 
@@ -3118,7 +3222,7 @@
         debtToEquity <= 60
       ) {
 
-        debtPart = 8;
+        debtPart = 6;
 
       }
 
@@ -3126,7 +3230,7 @@
         debtToEquity <= 100
       ) {
 
-        debtPart = 6;
+        debtPart = 5;
 
       }
 
@@ -3155,6 +3259,10 @@
     }
 
 
+    /*
+      유동비율
+    */
+
     if (
       currentRatio !== null &&
       currentRatio >= 0
@@ -3164,7 +3272,7 @@
         currentRatio >= 2.0
       ) {
 
-        liquidityPart = 10;
+        liquidityPart = 6;
 
       }
 
@@ -3172,7 +3280,7 @@
         currentRatio >= 1.5
       ) {
 
-        liquidityPart = 8;
+        liquidityPart = 5;
 
       }
 
@@ -3180,7 +3288,7 @@
         currentRatio >= 1.2
       ) {
 
-        liquidityPart = 6;
+        liquidityPart = 4;
 
       }
 
@@ -3188,7 +3296,7 @@
         currentRatio >= 1.0
       ) {
 
-        liquidityPart = 4;
+        liquidityPart = 3;
 
       }
 
@@ -3196,7 +3304,7 @@
         currentRatio >= 0.75
       ) {
 
-        liquidityPart = 2;
+        liquidityPart = 1.5;
 
       }
 
@@ -3209,9 +3317,100 @@
     }
 
 
+    /*
+      영업현금흐름
+
+      매출 대비 영업현금흐름률을 사용합니다.
+
+      예:
+      20% 이상 = 매우 강함
+      15% 이상 = 강함
+      10% 이상 = 양호
+      5% 이상 = 보통
+      0% 이상 = 낮음
+      음수 = 0점
+    */
+
+    if (
+      operatingCashflow !== null &&
+      revenueTTM !== null &&
+      revenueTTM > 0
+    ) {
+
+      const cashflowMargin =
+        (
+          operatingCashflow /
+          revenueTTM
+        ) *
+        100;
+
+
+      if (
+        cashflowMargin >= 20
+      ) {
+
+        cashflowPart = 7;
+
+      }
+
+      else if (
+        cashflowMargin >= 15
+      ) {
+
+        cashflowPart = 6;
+
+      }
+
+      else if (
+        cashflowMargin >= 10
+      ) {
+
+        cashflowPart = 5;
+
+      }
+
+      else if (
+        cashflowMargin >= 5
+      ) {
+
+        cashflowPart = 4;
+
+      }
+
+      else if (
+        cashflowMargin >= 0
+      ) {
+
+        cashflowPart = 2;
+
+      }
+
+      else {
+
+        cashflowPart = 0;
+
+      }
+
+    }
+
+    else if (
+      operatingCashflow !== null
+    ) {
+
+      /*
+        매출 데이터가 없으면
+        현금흐름 자체는 중립으로 처리
+      */
+
+      cashflowPart = 3.5;
+
+    }
+
+
     return clamp(
       debtPart +
-      liquidityPart,
+      liquidityPart +
+      cashflowPart,
       0,
       20
     );
@@ -3227,6 +3426,8 @@
      PER 4점
      PSR 3점
      EV/EBITDA 4점
+
+     데이터가 없으면 중립
   ========================================================= */
 
   function valuationScore(
@@ -3242,9 +3443,11 @@
 
 
     const pe =
-      safeNumber(
-        data[
-          "PERatio"
+      firstNumber(
+        data,
+        [
+          "PERatio",
+          "TrailingPE"
         ]
       );
 
@@ -3280,6 +3483,10 @@
     let evPart =
       2;
 
+
+    /*
+      PEG
+    */
 
     if (
       peg !== null &&
@@ -3335,6 +3542,10 @@
     }
 
 
+    /*
+      PER
+    */
+
     if (
       pe !== null &&
       pe > 0
@@ -3389,6 +3600,10 @@
     }
 
 
+    /*
+      PSR
+    */
+
     if (
       ps !== null &&
       ps > 0
@@ -3434,6 +3649,10 @@
 
     }
 
+
+    /*
+      EV/EBITDA
+    */
 
     if (
       evEbitda !== null &&
@@ -3580,6 +3799,89 @@
 
 
   /* =========================================================
+     데이터 품질 계산
+  ========================================================= */
+
+  function calculateDataQuality(
+    data
+  ) {
+
+    const fields = [
+
+      "QuarterlyRevenueGrowthYOY",
+
+      "QuarterlyEarningsGrowthYOY",
+
+      "OperatingMarginTTM",
+
+      "ReturnOnEquityTTM",
+
+      "DebtToEquity",
+
+      "CurrentRatio",
+
+      "OperatingCashflow",
+
+      "RevenueTTM",
+
+      "PEGRatio",
+
+      "PERatio",
+
+      "PriceToSalesRatioTTM",
+
+      "EVToEBITDA",
+
+      "Beta"
+
+    ];
+
+
+    let available = 0;
+
+
+    fields.forEach(
+      field => {
+
+        const value =
+          safeNumber(
+            data[field]
+          );
+
+
+        if (
+          value !== null
+        ) {
+
+          available++;
+
+        }
+
+      }
+    );
+
+
+    return {
+
+      available:
+        available,
+
+      total:
+        fields.length,
+
+      percent:
+        (
+          available /
+          fields.length
+        ) *
+        100
+
+    };
+
+  }
+
+
+  /* =========================================================
      추천 점수 계산
      총 100점
   ========================================================= */
@@ -3626,6 +3928,12 @@
       risk;
 
 
+    const quality =
+      calculateDataQuality(
+        data
+      );
+
+
     return {
 
       score:
@@ -3648,7 +3956,10 @@
         valuation,
 
       risk:
-        risk
+        risk,
+
+      dataQuality:
+        quality
 
     };
 
@@ -4116,6 +4427,10 @@
             );
 
 
+          const quality =
+            result.dataQuality;
+
+
           let reason =
             "";
 
@@ -4130,7 +4445,10 @@
             " / 밸류 " +
             result.valuation.toFixed(1) +
             " / 위험 " +
-            result.risk.toFixed(1);
+            result.risk.toFixed(1) +
+            " / 데이터 " +
+            quality.percent.toFixed(0) +
+            "%";
 
 
           scoredItems.push({
@@ -4234,6 +4552,8 @@
         "실패 " +
         failed +
         "개" +
+        "<br>" +
+        "성장성·수익성·재무건전성·현금흐름·밸류에이션·위험도를 종합했습니다." +
         "<br><br>" +
 
         '<button ' +
