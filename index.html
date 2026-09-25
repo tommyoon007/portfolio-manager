@@ -508,6 +508,118 @@
     }
 
 
+
+    /* =========================================================
+       Dashboard v5 — compact controls / hierarchy
+    ========================================================= */
+
+    .portfolio-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .portfolio-head .card-title {
+      margin-bottom: 0;
+    }
+
+    .portfolio-actions {
+      display: flex;
+      gap: 7px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .portfolio-actions button {
+      padding: 8px 11px;
+      font-size: 11px;
+    }
+
+    .settings-card {
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .settings-card summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 15px 18px;
+      font-weight: 700;
+      color: #dce2e9;
+    }
+
+    .settings-card summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .settings-card summary::after {
+      content: "＋";
+      float: right;
+      color: #718096;
+    }
+
+    .settings-card[open] summary::after {
+      content: "−";
+    }
+
+    .settings-content {
+      padding: 0 18px 18px;
+    }
+
+    .recommend-info {
+      margin-top: 10px;
+    }
+
+    .recommend-info summary {
+      cursor: pointer;
+      color: #dce2e9;
+      font-weight: 700;
+      outline: none;
+    }
+
+    .recommend-info summary::marker {
+      color: #8b6cff;
+    }
+
+    .dashboard-note {
+      margin-top: 8px;
+      color: #707b89;
+      font-size: 10px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 700px) {
+      .portfolio-head {
+        align-items: flex-start;
+      }
+
+      .portfolio-actions {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .portfolio-actions button {
+        width: 100%;
+        padding: 10px 7px;
+      }
+
+      .settings-card summary {
+        padding: 13px 14px;
+        font-size: 13px;
+      }
+
+      .settings-content {
+        padding: 0 14px 14px;
+      }
+
+      .dashboard-note {
+        font-size: 9px;
+      }
+    }
+
     /* =========================================================
        모바일 포트폴리오 대시보드 v4
     ========================================================= */
@@ -848,18 +960,18 @@
       현재 비중 · 목표 비중 · 추천 비중 · 리밸런싱을 한눈에 관리합니다.
     </div>
 
-    <div class="build-version">Dashboard v4 · Mobile Optimized</div>
+    <div class="build-version">Dashboard v5 · Compact Mobile</div>
 
   </header>
 
 
   <!-- API 설정 -->
 
-  <div class="card">
+  <details class="card settings-card">
 
-    <div class="card-title">
-      ⚙️ 데이터 설정
-    </div>
+    <summary>⚙️ 데이터 설정</summary>
+
+    <div class="settings-content">
 
     <div class="api-row">
 
@@ -892,7 +1004,9 @@
 
     </div>
 
-  </div>
+    </div>
+
+  </details>
 
 
   <!-- 포트폴리오 요약 -->
@@ -1110,8 +1224,30 @@
 
   <div class="card">
 
-    <div class="card-title">
-      💼 내 포트폴리오
+    <div class="portfolio-head">
+      <div class="card-title">
+        💼 내 포트폴리오
+      </div>
+
+      <div class="portfolio-actions">
+        <button
+          class="button-secondary"
+          onclick="refreshPrices()"
+        >
+          🔄 시세 업데이트
+        </button>
+
+        <button
+          class="button-recommend"
+          onclick="calculateRecommendedWeights()"
+        >
+          🧠 추천 계산
+        </button>
+      </div>
+    </div>
+
+    <div class="dashboard-note">
+      현재 비중을 기준으로 목표 비중과 리밸런싱 금액을 바로 확인합니다.
     </div>
 
     <div class="table-wrap">
@@ -1162,7 +1298,10 @@
       목표 비중 합계: <strong>0.00%</strong>
     </div>
 
-    <div class="recommend-info">
+    <details class="recommend-info">
+      <summary>추천 비중 엔진 설명</summary>
+
+      <div style="margin-top:10px;">
 
       <strong>추천 비중 엔진 v3</strong><br>
 
@@ -1221,58 +1360,11 @@
       추천비중이 목표비중으로 복사되고,
       추가매수/매도 금액 계산에 바로 반영됩니다.
 
-    </div>
+      </div>
+    </details>
 
   </div>
 
-
-  <!-- 추천 비중 -->
-
-  <div class="card">
-
-    <div class="card-title">
-      🧠 추천 비중 계산
-    </div>
-
-    <button
-      id="recommendButton"
-      class="button-recommend"
-      onclick="calculateRecommendedWeights()"
-      style="width:100%;"
-    >
-      🧠 재무데이터 기반 추천 비중 계산
-    </button>
-
-    <div
-      id="recommendStatus"
-      class="status"
-    >
-      아직 추천 비중을 계산하지 않았습니다.
-    </div>
-
-  </div>
-
-
-  <!-- 업데이트 -->
-
-  <div class="card">
-
-    <button
-      class="button-secondary"
-      onclick="refreshPrices()"
-      style="width:100%;"
-    >
-      🔄 시세 업데이트
-    </button>
-
-    <div
-      id="updateStatus"
-      class="status"
-    >
-      아직 시세를 업데이트하지 않았습니다.
-    </div>
-
-  </div>
 
 </div>
 
