@@ -2704,6 +2704,35 @@
      포트폴리오 계산
   ========================================================= */
 
+  function getHoldingMarketData(item) {
+
+    const currentPrice = Number(item.currentPrice);
+    const avgPrice = Number(item.avgPrice);
+    const quantity = Number(item.quantity) || 0;
+
+    const hasCurrentPrice =
+      Number.isFinite(currentPrice) && currentPrice > 0;
+
+    const hasAveragePrice =
+      Number.isFinite(avgPrice) && avgPrice > 0;
+
+    const price =
+      hasCurrentPrice
+        ? currentPrice
+        : hasAveragePrice
+          ? avgPrice
+          : 0;
+
+    return {
+      price: price,
+      value: price * quantity,
+      quantity: quantity,
+      usingAveragePrice: !hasCurrentPrice && hasAveragePrice
+    };
+
+  }
+
+
   function calculatePortfolio() {
 
     let totalCost = 0;
@@ -2714,23 +2743,15 @@
     holdings.forEach(
       item => {
 
+        const market =
+          getHoldingMarketData(item);
+
         const cost =
-          item.avgPrice *
-          item.quantity;
-
-
-        const price =
-          item.currentPrice !== null &&
-          item.currentPrice !== undefined
-
-            ? item.currentPrice
-
-            : item.avgPrice;
-
+          Number(item.avgPrice) *
+          market.quantity;
 
         const value =
-          price *
-          item.quantity;
+          market.value;
 
 
         totalCost += cost;
@@ -2794,18 +2815,11 @@
     holdings.forEach(
       item => {
 
-        const price =
-          item.currentPrice !== null &&
-          item.currentPrice !== undefined
-
-            ? item.currentPrice
-
-            : item.avgPrice;
-
+        const market =
+          getHoldingMarketData(item);
 
         const value =
-          price *
-          item.quantity;
+          market.value;
 
 
         const targetWeight =
@@ -3025,27 +3039,33 @@
     container.innerHTML =
       holdings.map(item => {
 
+        const market =
+          getHoldingMarketData(item);
+
         const cost =
-          item.avgPrice * item.quantity;
+          Number(item.avgPrice) * market.quantity;
 
         const price =
-          item.currentPrice;
+          market.price;
 
         const value =
-          price !== null && price !== undefined
-            ? price * item.quantity
-            : null;
+          market.value;
+
+        const priceLabel =
+          market.usingAveragePrice
+            ? "현재가 없음 · 평균가 기준"
+            : "현재가";
 
         const profit =
-          value !== null ? value - cost : null;
+          value - cost;
 
         const returnRate =
-          value !== null && cost > 0
+          cost > 0
             ? (profit / cost) * 100
             : null;
 
         const weight =
-          value !== null && portfolio.totalValue > 0
+          portfolio.totalValue > 0
             ? (value / portfolio.totalValue) * 100
             : 0;
 
@@ -3187,7 +3207,7 @@
             </div>
 
             <div class="holding-extra">
-              <span>현재가 ${money(price)}</span>
+              <span>${priceLabel} ${money(price)}</span>
               <span>평균 ${money(item.avgPrice)}</span>
               <span>수량 ${numberFormat(item.quantity)}</span>
               <span>목표금액 ${money(targetValue)}</span>
@@ -3275,36 +3295,25 @@
       holdings.map(
         item => {
 
-          const cost =
-            item.avgPrice *
-            item.quantity;
+          const market =
+            getHoldingMarketData(item);
 
+          const cost =
+            Number(item.avgPrice) *
+            market.quantity;
 
           const price =
-            item.currentPrice;
-
+            market.price;
 
           const value =
-            price !== null &&
-            price !== undefined
-
-              ? price *
-                item.quantity
-
-              : null;
+            market.value;
 
 
           const profit =
-            value !== null
-
-              ? value -
-                cost
-
-              : null;
-
+            value -
+            cost;
 
           const returnRate =
-            value !== null &&
             cost > 0
 
               ? (
@@ -3314,9 +3323,7 @@
 
               : null;
 
-
           const weight =
-            value !== null &&
             portfolio.totalValue > 0
 
               ? (
