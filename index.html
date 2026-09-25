@@ -407,6 +407,31 @@
       margin-bottom: 12px;
     }
 
+    .detail-asset-info {
+      color: #aab3bf;
+      font-size: 11px;
+      margin-bottom: 10px;
+    }
+
+    .detail-asset-info strong {
+      color: #fff;
+    }
+
+    .detail-neutral-box {
+      background: #171e27;
+      border: 1px solid #283241;
+      border-radius: 9px;
+      padding: 9px 10px;
+      color: #aab3bf;
+      font-size: 11px;
+      line-height: 1.5;
+      margin-bottom: 10px;
+    }
+
+    .detail-neutral-box strong {
+      color: #d6a95e;
+    }
+
     .detail-score-grid {
       display: grid;
       grid-template-columns: repeat(5, 1fr);
@@ -482,6 +507,258 @@
       color: #d6a95e;
     }
 
+
+    /* =========================================================
+       모바일 포트폴리오 대시보드 v4
+    ========================================================= */
+
+    .build-version {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 4px 8px;
+      border: 1px solid #263241;
+      border-radius: 999px;
+      color: #718096;
+      background: #0d131a;
+      font-size: 10px;
+    }
+
+    .portfolio-mobile {
+      display: none;
+    }
+
+    .holding-card {
+      background: #0d131a;
+      border: 1px solid #252f3c;
+      border-radius: 14px;
+      padding: 13px;
+      margin-bottom: 9px;
+    }
+
+    .holding-card:last-child {
+      margin-bottom: 0;
+    }
+
+    .holding-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #202936;
+    }
+
+    .holding-card-ticker {
+      font-size: 18px;
+      font-weight: 850;
+      line-height: 1.1;
+    }
+
+    .holding-card-company {
+      color: #7f8a99;
+      font-size: 10px;
+      margin-top: 4px;
+      max-width: 210px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .holding-card-score {
+      min-width: 58px;
+      padding: 6px 8px;
+      text-align: center;
+      border-radius: 9px;
+      background: #202936;
+      font-size: 15px;
+      font-weight: 850;
+    }
+
+    .holding-card-score-label {
+      display: block;
+      color: #707b89;
+      font-size: 8px;
+      margin-bottom: 2px;
+    }
+
+    .holding-main-grid {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 7px;
+      margin-top: 10px;
+    }
+
+    .holding-main-item {
+      background: #111821;
+      border-radius: 9px;
+      padding: 9px 10px;
+      min-width: 0;
+    }
+
+    .holding-main-label {
+      color: #707b89;
+      font-size: 9px;
+      margin-bottom: 4px;
+    }
+
+    .holding-main-value {
+      color: #e9edf2;
+      font-size: 13px;
+      font-weight: 750;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .holding-weight-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+      margin-top: 7px;
+    }
+
+    .holding-weight-box {
+      background: #111821;
+      border-radius: 9px;
+      padding: 8px 9px;
+    }
+
+    .holding-weight-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .holding-weight-label {
+      color: #707b89;
+      font-size: 9px;
+    }
+
+    .holding-weight-value {
+      color: #fff;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .holding-bar {
+      height: 5px;
+      margin-top: 6px;
+      background: #252e3a;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .holding-bar-fill {
+      height: 100%;
+      background: #4d7cff;
+      border-radius: 999px;
+    }
+
+    .holding-bar-fill.recommended {
+      background: #8b6cff !important;
+    }
+
+    .holding-target-row {
+      display: grid;
+      grid-template-columns: 0.9fr 1.1fr;
+      gap: 7px;
+      margin-top: 7px;
+    }
+
+    .holding-target-box {
+      background: #111821;
+      border-radius: 9px;
+      padding: 8px 9px;
+    }
+
+    .holding-target-box .target-input {
+      width: 78px;
+      padding: 7px 7px;
+      margin-top: 5px;
+      margin-left: auto;
+      display: block;
+      font-size: 12px;
+    }
+
+    .holding-rebalance {
+      margin-top: 7px;
+      padding: 9px 10px;
+      border-radius: 9px;
+      background: #171e27;
+      border: 1px solid #283241;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+    }
+
+    .holding-rebalance-label {
+      color: #8994a3;
+    }
+
+    .holding-extra {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 10px;
+      margin-top: 7px;
+      color: #6f7b8b;
+      font-size: 9px;
+      line-height: 1.4;
+    }
+
+    .holding-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr 0.7fr;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .holding-actions button {
+      width: 100%;
+      padding: 9px 5px;
+      font-size: 10px;
+    }
+
+    .mobile-detail {
+      display: none;
+      margin-top: 8px;
+      padding: 9px;
+      background: #111821;
+      border: 1px solid #283241;
+      border-radius: 9px;
+    }
+
+    .mobile-detail.open {
+      display: block;
+    }
+
+    .mobile-detail-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 5px;
+      margin-top: 7px;
+    }
+
+    .mobile-detail-item {
+      background: #0b1016;
+      border-radius: 7px;
+      padding: 6px;
+    }
+
+    .mobile-detail-item span {
+      display: block;
+      color: #707b89;
+      font-size: 8px;
+      margin-bottom: 2px;
+    }
+
+    .mobile-detail-item strong {
+      color: #d9dee5;
+      font-size: 10px;
+    }
+
     @media (max-width: 900px) {
 
       .rebalance-grid {
@@ -540,6 +817,20 @@
         grid-template-columns: 1fr 1fr;
       }
 
+      .table-wrap {
+        display: none;
+      }
+
+      .portfolio-mobile {
+        display: block;
+      }
+
+      .target-total {
+        margin-top: 12px;
+        padding-top: 11px;
+        border-top: 1px solid #202936;
+      }
+
     }
 
   </style>
@@ -554,8 +845,10 @@
     <h1>📊 Portfolio Manager</h1>
 
     <div class="subtitle">
-      내 포트폴리오의 현재 비중과 목표 비중을 관리합니다.
+      현재 비중 · 목표 비중 · 추천 비중 · 리밸런싱을 한눈에 관리합니다.
     </div>
+
+    <div class="build-version">Dashboard v4 · Mobile Optimized</div>
 
   </header>
 
@@ -858,6 +1151,11 @@
     </div>
 
     <div
+      id="portfolioMobile"
+      class="portfolio-mobile"
+    ></div>
+
+    <div
       id="targetTotal"
       class="target-total"
     >
@@ -866,7 +1164,7 @@
 
     <div class="recommend-info">
 
-      <strong>추천 비중 엔진 v2</strong><br>
+      <strong>추천 비중 엔진 v3</strong><br>
 
       성장성 30% + 수익성 25% + 재무건전성·현금흐름 20% +
       밸류에이션 15% + 위험도 10%를 이용해
@@ -896,6 +1194,14 @@
 
       <strong>위험도</strong>:
       Beta가 낮을수록 높은 점수
+
+      <br><br>
+
+      <strong>자산유형 보정</strong>:
+      ETF·채권 ETF는 개별기업 펀더멘털을 직접 평가하지 않고
+      <strong>50점 중립점수</strong>를 사용합니다.
+      개별주식은 기존 100점 펀더멘털 모델을 적용하며,
+      성장주·가치주·혼합형 스타일은 표시용으로 분류합니다.
 
       <br><br>
 
@@ -984,6 +1290,71 @@
 
   const FUNDAMENTAL_CACHE_KEY =
     "portfolio_manager_fundamental_cache_v1";
+
+
+  /* =========================================================
+     자산유형 분류
+     ETF/채권 ETF는 개별기업 펀더멘털과 같은 방식으로
+     평가하면 왜곡될 수 있으므로 별도 처리합니다.
+  ========================================================= */
+
+  const BOND_ETF_TICKERS = new Set([
+    "TLT",
+    "TLTW",
+    "EDV",
+    "IEF",
+    "SHY",
+    "IEI",
+    "BIL",
+    "SGOV",
+    "AGG",
+    "BND",
+    "LQD",
+    "HYG",
+    "JNK",
+    "TIP",
+    "VGIT",
+    "VGLT",
+    "GOVT",
+    "VCIT",
+    "VCSH",
+    "MUB"
+  ]);
+
+
+  const ETF_TICKERS = new Set([
+    "SPY",
+    "VOO",
+    "IVV",
+    "VTI",
+    "QQQ",
+    "DIA",
+    "IWM",
+    "SCHD",
+    "VIG",
+    "SOXX",
+    "SMH",
+    "XLK",
+    "XLF",
+    "XLE",
+    "XLV",
+    "XLI",
+    "XLP",
+    "XLY",
+    "XLC",
+    "XLU",
+    "XLB",
+    "XLRE",
+    "BOTZ",
+    "ROBO",
+    "ARKK",
+    "ARKQ",
+    "ARKX",
+    "MORT",
+    "IBIT",
+    "ETHA",
+    "ETHZ"
+  ]);
 
 
   let holdings = [];
@@ -1098,6 +1469,12 @@
 
           recommendationReason:
             item.recommendationReason || "",
+
+          assetType:
+            item.assetType || null,
+
+          investmentStyle:
+            item.investmentStyle || null,
 
           recommendationDetails:
             item.recommendationDetails || null
@@ -1436,6 +1813,12 @@
 
           recommendationReason:
             "",
+
+          assetType:
+            null,
+
+          investmentStyle:
+            null,
 
           recommendationDetails:
             null
@@ -1833,6 +2216,19 @@
     }
 
 
+    const neutral =
+      details.neutral === true;
+
+    const detailAssetType =
+      details.assetType ||
+      item.assetType ||
+      "STOCK";
+
+    const detailStyle =
+      details.investmentStyle ||
+      item.investmentStyle ||
+      "N/A";
+
     const growth =
       Number(details.growth) || 0;
 
@@ -1939,6 +2335,25 @@
             </div>
 
 
+            <div class="detail-asset-info">
+              자산유형: <strong>${escapeHtml(assetTypeLabel(detailAssetType))}</strong>
+              &nbsp;·&nbsp;
+              스타일: <strong>${escapeHtml(investmentStyleLabel(detailStyle))}</strong>
+            </div>
+
+
+            ${
+              neutral
+                ? `
+                  <div class="detail-neutral-box">
+                    ETF/채권 ETF는 개별기업 펀더멘털을 직접 비교할 수 없어
+                    <strong>50점 중립점수</strong>를 사용합니다.
+                  </div>
+                `
+                : ""
+            }
+
+
             <div class="detail-score-grid">
 
               <div class="detail-score-item">
@@ -1948,7 +2363,7 @@
                 </div>
 
                 <div class="detail-score-value">
-                  ${growth.toFixed(1)} / 30
+                  ${neutral ? "중립" : growth.toFixed(1) + " / 30"}
                 </div>
 
               </div>
@@ -1961,7 +2376,7 @@
                 </div>
 
                 <div class="detail-score-value">
-                  ${profitability.toFixed(1)} / 25
+                  ${neutral ? "중립" : profitability.toFixed(1) + " / 25"}
                 </div>
 
               </div>
@@ -1974,7 +2389,7 @@
                 </div>
 
                 <div class="detail-score-value">
-                  ${financialStrength.toFixed(1)} / 20
+                  ${neutral ? "중립" : financialStrength.toFixed(1) + " / 20"}
                 </div>
 
               </div>
@@ -1987,7 +2402,7 @@
                 </div>
 
                 <div class="detail-score-value">
-                  ${valuation.toFixed(1)} / 15
+                  ${neutral ? "중립" : valuation.toFixed(1) + " / 15"}
                 </div>
 
               </div>
@@ -2000,7 +2415,7 @@
                 </div>
 
                 <div class="detail-score-value">
-                  ${risk.toFixed(1)} / 10
+                  ${neutral ? "중립" : risk.toFixed(1) + " / 10"}
                 </div>
 
               </div>
@@ -2494,6 +2909,320 @@
 
 
   /* =========================================================
+     모바일 추천 세부정보
+  ========================================================= */
+
+  function toggleMobileRecommendationDetails(ticker) {
+
+    const element =
+      document.getElementById(
+        "mobile-detail-" + ticker
+      );
+
+    if (!element) {
+      return;
+    }
+
+    element.classList.toggle("open");
+
+  }
+
+
+  function mobileRecommendationDetailsHtml(item) {
+
+    const details =
+      item.recommendationDetails;
+
+    if (!details) {
+      return "";
+    }
+
+    const metrics =
+      details.metrics || {};
+
+    const quality =
+      details.dataQuality || {};
+
+    const metric = (value, suffix = "") =>
+      value === null ||
+      value === undefined ||
+      !Number.isFinite(Number(value))
+        ? "-"
+        : Number(value).toFixed(1) + suffix;
+
+    return `
+      <div
+        id="mobile-detail-${escapeHtml(item.ticker)}"
+        class="mobile-detail"
+      >
+        <div style="font-size:10px;font-weight:800;color:#fff;">추천 점수 세부내역</div>
+
+        <div class="mobile-detail-grid">
+          <div class="mobile-detail-item">
+            <span>성장성</span>
+            <strong>${Number(details.growth || 0).toFixed(1)} / 30</strong>
+          </div>
+          <div class="mobile-detail-item">
+            <span>수익성</span>
+            <strong>${Number(details.profitability || 0).toFixed(1)} / 25</strong>
+          </div>
+          <div class="mobile-detail-item">
+            <span>건전성</span>
+            <strong>${Number(details.financialStrength || 0).toFixed(1)} / 20</strong>
+          </div>
+          <div class="mobile-detail-item">
+            <span>밸류에이션</span>
+            <strong>${Number(details.valuation || 0).toFixed(1)} / 15</strong>
+          </div>
+          <div class="mobile-detail-item">
+            <span>위험도</span>
+            <strong>${Number(details.risk || 0).toFixed(1)} / 10</strong>
+          </div>
+          <div class="mobile-detail-item">
+            <span>데이터 품질</span>
+            <strong>${Number(quality.percent || 0).toFixed(0)}%</strong>
+          </div>
+        </div>
+
+        <div style="margin-top:7px;color:#718096;font-size:9px;line-height:1.5;">
+          매출성장 ${metric(metrics.revenueGrowth, "%")} ·
+          이익성장 ${metric(metrics.earningsGrowth, "%")} ·
+          영업이익률 ${metric(metrics.operatingMargin, "%")} ·
+          ROE ${metric(metrics.roe, "%")} ·
+          Beta ${metric(metrics.beta)}
+        </div>
+      </div>
+    `;
+
+  }
+
+
+  /* =========================================================
+     모바일 포트폴리오 출력
+  ========================================================= */
+
+  function renderPortfolioMobile() {
+
+    const container =
+      document.getElementById("portfolioMobile");
+
+    if (!container) {
+      return;
+    }
+
+    if (holdings.length === 0) {
+      container.innerHTML = `
+        <div class="empty">
+          아직 등록된 종목이 없습니다.
+        </div>
+      `;
+      return;
+    }
+
+    const portfolio =
+      calculatePortfolio();
+
+    container.innerHTML =
+      holdings.map(item => {
+
+        const cost =
+          item.avgPrice * item.quantity;
+
+        const price =
+          item.currentPrice;
+
+        const value =
+          price !== null && price !== undefined
+            ? price * item.quantity
+            : null;
+
+        const profit =
+          value !== null ? value - cost : null;
+
+        const returnRate =
+          value !== null && cost > 0
+            ? (profit / cost) * 100
+            : null;
+
+        const weight =
+          value !== null && portfolio.totalValue > 0
+            ? (value / portfolio.totalValue) * 100
+            : 0;
+
+        const targetWeight =
+          Number(item.targetWeight) || 0;
+
+        const recommendedWeight =
+          item.recommendedWeight !== null &&
+          item.recommendedWeight !== undefined
+            ? Number(item.recommendedWeight)
+            : null;
+
+        const weightDifference =
+          targetWeight - weight;
+
+        const targetValue =
+          portfolio.totalValue * (targetWeight / 100);
+
+        const rebalanceAmount =
+          targetValue - (value || 0);
+
+        const profitClass =
+          profit > 0
+            ? "positive"
+            : profit < 0
+              ? "negative"
+              : "neutral";
+
+        const score =
+          item.recommendationScore !== null &&
+          item.recommendationScore !== undefined
+            ? Number(item.recommendationScore)
+            : null;
+
+        const scoreClass =
+          score !== null && score >= 70
+            ? "positive"
+            : score !== null && score < 50
+              ? "negative"
+              : "neutral";
+
+        const rebalanceClass =
+          rebalanceAmount > 0.01
+            ? "rebalance-add"
+            : rebalanceAmount < -0.01
+              ? "rebalance-reduce"
+              : "rebalance-neutral";
+
+        const differenceClass =
+          weightDifference > 0.01
+            ? "positive"
+            : weightDifference < -0.01
+              ? "negative"
+              : "neutral";
+
+        return `
+          <div class="holding-card">
+
+            <div class="holding-card-head">
+              <div>
+                <div class="holding-card-ticker">${escapeHtml(item.ticker)}</div>
+                <div class="holding-card-company">${escapeHtml(item.companyName || "")}</div>
+              </div>
+
+              <div class="holding-card-score ${scoreClass}">
+                <span class="holding-card-score-label">추천점수</span>
+                ${score !== null ? score.toFixed(1) : "-"}
+              </div>
+            </div>
+
+            <div class="holding-main-grid">
+              <div class="holding-main-item">
+                <div class="holding-main-label">평가금액</div>
+                <div class="holding-main-value">${money(value)}</div>
+              </div>
+              <div class="holding-main-item">
+                <div class="holding-main-label">손익 / 수익률</div>
+                <div class="holding-main-value ${profitClass}">
+                  ${money(profit)} · ${returnRate !== null ? percent(returnRate) : "-"}
+                </div>
+              </div>
+            </div>
+
+            <div class="holding-weight-row">
+              <div class="holding-weight-box">
+                <div class="holding-weight-top">
+                  <span class="holding-weight-label">현재 비중</span>
+                  <span class="holding-weight-value">${percent(weight)}</span>
+                </div>
+                <div class="holding-bar">
+                  <div class="holding-bar-fill" style="width:${Math.min(weight,100)}%"></div>
+                </div>
+              </div>
+
+              <div class="holding-weight-box">
+                <div class="holding-weight-top">
+                  <span class="holding-weight-label">추천 비중</span>
+                  <span class="holding-weight-value">${recommendedWeight !== null ? percent(recommendedWeight) : "-"}</span>
+                </div>
+                <div class="holding-bar">
+                  <div class="holding-bar-fill recommended" style="width:${Math.min(recommendedWeight || 0,100)}%"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="holding-target-row">
+              <div class="holding-target-box">
+                <div class="holding-weight-label">목표 비중</div>
+                <input
+                  class="target-input"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value="${targetWeight}"
+                  onchange="updateTargetWeight('${escapeHtml(item.ticker)}', this.value)"
+                >
+              </div>
+
+              <div class="holding-target-box">
+                <div class="holding-weight-label">목표와 현재 차이</div>
+                <div class="holding-weight-value ${differenceClass}" style="margin-top:9px;">
+                  ${weightDifference > 0 ? "+" : ""}${percent(weightDifference)}
+                </div>
+              </div>
+            </div>
+
+            <div class="holding-rebalance">
+              <span class="holding-rebalance-label">리밸런싱</span>
+              <strong class="${rebalanceClass}">
+                ${
+                  rebalanceAmount > 0.01
+                    ? "+ " + money(rebalanceAmount) + " 매수"
+                    : rebalanceAmount < -0.01
+                      ? "- " + money(Math.abs(rebalanceAmount)) + " 매도"
+                      : "유지"
+                }
+              </strong>
+            </div>
+
+            <div class="holding-extra">
+              <span>현재가 ${money(price)}</span>
+              <span>평균 ${money(item.avgPrice)}</span>
+              <span>수량 ${numberFormat(item.quantity)}</span>
+              <span>목표금액 ${money(targetValue)}</span>
+            </div>
+
+            <div class="holding-actions">
+              ${
+                score !== null
+                  ? `<button class="button-secondary button-small" onclick="toggleMobileRecommendationDetails('${escapeHtml(item.ticker)}')">세부점수</button>`
+                  : `<button class="button-secondary button-small" disabled>세부점수 없음</button>`
+              }
+
+              ${
+                recommendedWeight !== null
+                  ? `<button class="button-recommend button-small" onclick="applyRecommendedWeight('${escapeHtml(item.ticker)}')">추천 적용</button>`
+                  : `<button class="button-secondary button-small" disabled>추천 없음</button>`
+              }
+
+              <button
+                class="button-danger button-small"
+                onclick="deleteHolding('${escapeHtml(item.ticker)}')"
+              >삭제</button>
+            </div>
+
+            ${mobileRecommendationDetailsHtml(item)}
+
+          </div>
+        `;
+
+      }).join("");
+
+  }
+
+
+  /* =========================================================
      화면 출력
   ========================================================= */
 
@@ -2525,6 +3254,7 @@
 
       `;
 
+      renderPortfolioMobile();
 
       updateSummary();
 
@@ -3031,6 +3761,8 @@
         }
       ).join("");
 
+
+    renderPortfolioMobile();
 
     updateSummary();
 
@@ -3548,6 +4280,234 @@
 
 
     return data;
+
+  }
+
+
+  /* =========================================================
+     자산유형 판별
+  ========================================================= */
+
+  function detectAssetType(
+    ticker,
+    data
+  ) {
+
+    const symbol =
+      String(ticker || "")
+        .trim()
+        .toUpperCase();
+
+
+    if (
+      BOND_ETF_TICKERS.has(symbol)
+    ) {
+
+      return "BOND_ETF";
+
+    }
+
+
+    if (
+      ETF_TICKERS.has(symbol)
+    ) {
+
+      return "ETF";
+
+    }
+
+
+    const assetType =
+      data &&
+      data.AssetType
+        ? String(data.AssetType).toUpperCase()
+        : "";
+
+
+    if (
+      assetType.includes("ETF")
+    ) {
+
+      return "ETF";
+
+    }
+
+
+    if (
+      assetType.includes("MUTUAL")
+    ) {
+
+      return "ETF";
+
+    }
+
+
+    return "STOCK";
+
+  }
+
+
+  /* =========================================================
+     자산유형 표시명
+  ========================================================= */
+
+  function assetTypeLabel(
+    assetType
+  ) {
+
+    if (
+      assetType === "BOND_ETF"
+    ) {
+
+      return "채권 ETF";
+
+    }
+
+
+    if (
+      assetType === "ETF"
+    ) {
+
+      return "ETF";
+
+    }
+
+
+    return "개별주식";
+
+  }
+
+
+  /* =========================================================
+     주식 스타일 판별
+     점수에 이중 반영하지 않고 표시용으로만 사용합니다.
+  ========================================================= */
+
+  function detectInvestmentStyle(
+    data,
+    assetType
+  ) {
+
+    if (
+      assetType !== "STOCK"
+    ) {
+
+      return "N/A";
+
+    }
+
+
+    const revenueGrowth =
+      safeNumber(
+        data[
+          "QuarterlyRevenueGrowthYOY"
+        ]
+      );
+
+
+    const earningsGrowth =
+      safeNumber(
+        data[
+          "QuarterlyEarningsGrowthYOY"
+        ]
+      );
+
+
+    const pe =
+      firstNumber(
+        data,
+        [
+          "PERatio",
+          "TrailingPE"
+        ]
+      );
+
+
+    const peg =
+      safeNumber(
+        data[
+          "PEGRatio"
+        ]
+      );
+
+
+    const strongGrowth =
+      (
+        revenueGrowth !== null &&
+        revenueGrowth >= 15
+      ) ||
+      (
+        earningsGrowth !== null &&
+        earningsGrowth >= 15
+      );
+
+
+    const attractiveValue =
+      (
+        pe !== null &&
+        pe > 0 &&
+        pe <= 20
+      ) &&
+      (
+        peg === null ||
+        (peg > 0 && peg <= 1.8)
+      );
+
+
+    if (
+      strongGrowth &&
+      attractiveValue
+    ) {
+
+      return "GROWTH_VALUE";
+
+    }
+
+
+    if (
+      strongGrowth
+    ) {
+
+      return "GROWTH";
+
+    }
+
+
+    if (
+      attractiveValue
+    ) {
+
+      return "VALUE";
+
+    }
+
+
+    return "BLEND";
+
+  }
+
+
+  function investmentStyleLabel(
+    style
+  ) {
+
+    if (style === "GROWTH") {
+      return "성장주";
+    }
+
+    if (style === "VALUE") {
+      return "가치주";
+    }
+
+    if (style === "GROWTH_VALUE") {
+      return "성장+가치";
+    }
+
+    if (style === "BLEND") {
+      return "혼합형";
+    }
+
+    return "-";
 
   }
 
@@ -4532,8 +5492,101 @@
   ========================================================= */
 
   function calculateRecommendationScore(
-    data
+    data,
+    assetType = "STOCK"
   ) {
+
+    /*
+      ETF와 채권 ETF는 개별기업의 매출·ROE·PER 등을
+      주식과 동일한 방식으로 평가할 수 없으므로
+      50점 중립값을 사용합니다.
+    */
+
+    if (
+      assetType === "ETF" ||
+      assetType === "BOND_ETF"
+    ) {
+
+      return {
+
+        score:
+          50,
+
+        growth:
+          null,
+
+        profitability:
+          null,
+
+        financialStrength:
+          null,
+
+        valuation:
+          null,
+
+        risk:
+          null,
+
+        neutral:
+          true,
+
+        dataQuality: {
+
+          available:
+            0,
+
+          total:
+            0,
+
+          percent:
+            0
+
+        },
+
+        metrics: {
+
+          revenueGrowth:
+            null,
+
+          earningsGrowth:
+            null,
+
+          operatingMargin:
+            null,
+
+          roe:
+            null,
+
+          debtToEquity:
+            null,
+
+          currentRatio:
+            null,
+
+          cashflowMargin:
+            null,
+
+          peg:
+            null,
+
+          pe:
+            null,
+
+          ps:
+            null,
+
+          evEbitda:
+            null,
+
+          beta:
+            null
+
+        }
+
+      };
+
+    }
+
 
     const growth =
       growthScore(
@@ -5231,15 +6284,52 @@
 
         try {
 
-          const data =
-            await getFundamentals(
-              item.ticker
+          let data = {};
+
+
+          let assetType =
+            detectAssetType(
+              item.ticker,
+              null
+            );
+
+
+          /*
+            이미 알려진 ETF/채권 ETF는
+            기업 재무 API를 호출하지 않습니다.
+            미등록 티커만 OVERVIEW의 AssetType으로 추가 판별합니다.
+          */
+
+          if (
+            assetType === "STOCK"
+          ) {
+
+            data =
+              await getFundamentals(
+                item.ticker
+              );
+
+
+            assetType =
+              detectAssetType(
+                item.ticker,
+                data
+              );
+
+          }
+
+
+          const investmentStyle =
+            detectInvestmentStyle(
+              data,
+              assetType
             );
 
 
           const result =
             calculateRecommendationScore(
-              data
+              data,
+              assetType
             );
 
 
@@ -5251,20 +6341,45 @@
             "";
 
 
-          reason =
-            "성장 " +
-            result.growth.toFixed(1) +
-            " / 수익 " +
-            result.profitability.toFixed(1) +
-            " / 건전성 " +
-            result.financialStrength.toFixed(1) +
-            " / 밸류 " +
-            result.valuation.toFixed(1) +
-            " / 위험 " +
-            result.risk.toFixed(1) +
-            " / 데이터 " +
-            quality.percent.toFixed(0) +
-            "%";
+          if (
+            result.neutral
+          ) {
+
+            reason =
+              assetTypeLabel(
+                assetType
+              ) +
+              " / 개별기업 펀더멘털 중립점수 50";
+
+          } else {
+
+            reason =
+              investmentStyleLabel(
+                investmentStyle
+              ) +
+              " / 성장 " +
+              result.growth.toFixed(1) +
+              " / 수익 " +
+              result.profitability.toFixed(1) +
+              " / 건전성 " +
+              result.financialStrength.toFixed(1) +
+              " / 밸류 " +
+              result.valuation.toFixed(1) +
+              " / 위험 " +
+              result.risk.toFixed(1) +
+              " / 데이터 " +
+              quality.percent.toFixed(0) +
+              "%";
+
+          }
+
+
+          item.assetType =
+            assetType;
+
+
+          item.investmentStyle =
+            investmentStyle;
 
 
           scoredItems.push({
@@ -5280,6 +6395,12 @@
 
             weight:
               0,
+
+            assetType:
+              assetType,
+
+            investmentStyle:
+              investmentStyle,
 
             details:
               result
@@ -5356,6 +6477,15 @@
 
               score:
                 result.details.score,
+
+              neutral:
+                result.details.neutral || false,
+
+              assetType:
+                result.assetType,
+
+              investmentStyle:
+                result.investmentStyle,
 
               growth:
                 result.details.growth,
