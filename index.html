@@ -3012,11 +3012,11 @@
     const portfolio =
       calculatePortfolio();
 
+    const totalValue =
+      portfolio.totalValue;
 
     let totalAdd = 0;
-
     let totalReduce = 0;
-
 
     holdings.forEach(
       item => {
@@ -3025,30 +3025,24 @@
           getHoldingMarketData(item);
 
         const value =
-          market.value;
-
+          Number(market.value) || 0;
 
         const targetWeight =
-          Number(
-            item.targetWeight
-          ) || 0;
-
+          Number(item.targetWeight) || 0;
 
         const targetValue =
-          portfolio.totalValue *
+          totalValue *
           (
             targetWeight /
             100
           );
 
-
         const difference =
           targetValue -
           value;
 
-
         if (
-          difference > 0
+          difference > 0.01
         ) {
 
           totalAdd +=
@@ -3057,7 +3051,7 @@
         }
 
         else if (
-          difference < 0
+          difference < -0.01
         ) {
 
           totalReduce +=
@@ -3069,7 +3063,6 @@
 
       }
     );
-
 
     const targetTotal =
       holdings.reduce(
@@ -3086,25 +3079,30 @@
         0
       );
 
-
+    /*
+      목표 비중이 100% 미만이면
+      남은 비중은 현금/미배분으로 간주한다.
+    */
     const unallocated =
-      Math.max(
-        0,
-        portfolio.totalValue *
-        (
+      totalValue > 0 &&
+      targetTotal < 100
+        ? totalValue *
           (
-            100 -
-            targetTotal
-          ) /
-          100
-        )
-      );
+            (100 - targetTotal) /
+            100
+          )
+        : 0;
 
-
+    /*
+      net은 추가투입 필요액이다.
+      목표 비중 합계가 100%이면
+      매수금액과 매도금액이 이론적으로 거의 동일하다.
+    */
     const net =
-      totalAdd -
-      totalReduce;
-
+      targetTotal >= 99.999 &&
+      targetTotal <= 100.001
+        ? totalAdd - totalReduce
+        : totalAdd;
 
     return {
 
