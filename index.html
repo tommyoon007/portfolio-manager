@@ -660,6 +660,31 @@
       border-bottom: 1px solid #202936;
     }
 
+    .holding-card-identity {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+
+    .holding-card-price {
+      flex: 0 0 auto;
+      text-align: right;
+      min-width: 72px;
+    }
+
+    .holding-card-price span {
+      display: block;
+      color: #707b89;
+      font-size: 8px;
+      margin-bottom: 2px;
+    }
+
+    .holding-card-price strong {
+      display: block;
+      color: #f1f4f7;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
     .holding-card-ticker {
       font-size: 18px;
       font-weight: 850;
@@ -943,6 +968,95 @@
         border-top: 1px solid #202936;
       }
 
+    }
+
+
+    /* =========================================================
+       Dashboard v6 — 모바일 정보 우선순위 개선
+    ========================================================= */
+
+    @media (max-width: 700px) {
+      .holding-card {
+        padding: 12px;
+        border-radius: 13px;
+        margin-bottom: 8px;
+      }
+
+      .holding-card-head {
+        gap: 7px;
+        padding-bottom: 9px;
+      }
+
+      .holding-card-ticker {
+        font-size: 17px;
+      }
+
+      .holding-card-company {
+        max-width: 150px;
+      }
+
+      .holding-card-price {
+        min-width: 68px;
+      }
+
+      .holding-card-price strong {
+        font-size: 12px;
+      }
+
+      .holding-card-score {
+        min-width: 52px;
+        padding: 5px 6px;
+        font-size: 14px;
+      }
+
+      .holding-main-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        margin-top: 8px;
+      }
+
+      .holding-main-item {
+        padding: 8px 9px;
+      }
+
+      .holding-main-value {
+        font-size: 12px;
+      }
+
+      .holding-weight-row,
+      .holding-target-row {
+        gap: 6px;
+        margin-top: 6px;
+      }
+
+      .holding-weight-box,
+      .holding-target-box {
+        padding: 7px 8px;
+      }
+
+      .holding-weight-value {
+        font-size: 12px;
+      }
+
+      .holding-rebalance {
+        margin-top: 6px;
+        padding: 8px 9px;
+      }
+
+      .holding-extra {
+        margin-top: 6px;
+        font-size: 8px;
+      }
+
+      .holding-actions {
+        margin-top: 7px;
+        grid-template-columns: 1fr 1fr 0.65fr;
+      }
+
+      .holding-actions button {
+        padding: 8px 4px;
+        font-size: 9px;
+      }
     }
 
   </style>
@@ -3217,9 +3331,14 @@
           <div class="holding-card">
 
             <div class="holding-card-head">
-              <div>
+              <div class="holding-card-identity">
                 <div class="holding-card-ticker">${escapeHtml(item.ticker)}</div>
                 <div class="holding-card-company">${escapeHtml(item.companyName || "")}</div>
+              </div>
+
+              <div class="holding-card-price">
+                <span>현재가</span>
+                <strong>${money(price)}</strong>
               </div>
 
               <div class="holding-card-score ${scoreClass}">
