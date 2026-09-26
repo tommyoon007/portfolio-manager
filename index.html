@@ -6,6 +6,14 @@
 
   <title>Portfolio Manager</title>
 
+<div
+  id="lastPriceUpdate"
+  class="dashboard-update-time"
+>
+  마지막 시세 업데이트: 아직 없음
+</div>
+
+
   <style>
 
     * {
@@ -1059,7 +1067,13 @@
       }
     }
 
-  </style>
+  .dashboard-update-time {
+  margin-top: 4px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  opacity: 0.65;
+}
+</style>
 </head>
 
 <body>
@@ -1074,7 +1088,7 @@
       현재 비중 · 목표 비중 · 추천 비중 · 리밸런싱을 한눈에 관리합니다.
     </div>
 
-    <div class="build-version">Dashboard v5 · Compact Mobile</div>
+    <div class="build-version">Portfolio Manager</div>
 
   </header>
 
@@ -7094,8 +7108,16 @@
       )
     );
 
+    if (success > 0) {
+      localStorage.setItem(
+        "portfolioLastPriceUpdate",
+        new Date().toISOString()
+      );
+    }
+
 
     renderPortfolio();
+    updateLastPriceUpdate();
 
 
     status.className =
@@ -7322,6 +7344,60 @@
           milliseconds
         )
     );
+
+  }
+
+
+
+  /* =========================================================
+     마지막 시세 업데이트
+  ========================================================= */
+
+  function updateLastPriceUpdate() {
+
+    const element =
+      document.getElementById(
+        "lastPriceUpdate"
+      );
+
+    if (!element) {
+      return;
+    }
+
+    const saved =
+      localStorage.getItem(
+        "portfolioLastPriceUpdate"
+      );
+
+    if (!saved) {
+      element.textContent =
+        "마지막 시세 업데이트: 아직 없음";
+      return;
+    }
+
+    const date =
+      new Date(saved);
+
+    if (
+      Number.isNaN(
+        date.getTime()
+      )
+    ) {
+      return;
+    }
+
+    element.textContent =
+      "마지막 시세 업데이트: " +
+      date.toLocaleString(
+        "ko-KR",
+        {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit"
+        }
+      );
 
   }
 
