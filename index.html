@@ -6,6 +6,15 @@
 
   <title>Portfolio Manager</title>
 
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#0b0f14">
+
+  <!-- iOS: 홈 화면 추가 시 전체화면(standalone)으로 열리게 하는 메타태그 -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Portfolio">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+
   <style>
 
     * {
@@ -7279,6 +7288,12 @@
 
   init();
   updateLastUpdated();
+
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("./sw.js").catch(function () {});
+    });
+  }
 
 </script>
 
