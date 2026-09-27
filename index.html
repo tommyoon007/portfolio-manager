@@ -2045,81 +2045,13 @@
     ticker
   ) {
 
-    const apiKey =
-      localStorage.getItem(
-        API_KEY_STORAGE
-      );
-
-
-    if (!apiKey) {
-
-      throw new Error(
-        "API Key가 없습니다."
-      );
-
-    }
-
-
-    const companyCacheKey =
-      "company_" +
-      ticker;
-
-
-    const cached =
-      localStorage.getItem(
-        companyCacheKey
-      );
-
-
-    if (cached) {
-
-      return cached;
-
-    }
-
-
-    const url =
-      "https://www.alphavantage.co/query" +
-      "?function=OVERVIEW" +
-      "&symbol=" +
-      encodeURIComponent(ticker) +
-      "&apikey=" +
-      encodeURIComponent(apiKey);
-
-
-    const response =
-      await fetch(url);
-
-
-    if (!response.ok) {
-
-      throw new Error(
-        "회사정보 API 오류"
-      );
-
-    }
-
-
+    // getFundamentals()와 같은 OVERVIEW 엔드포인트를 쓰므로
+    // 여기서 다시 호출하지 않고 캐시를 공유합니다.
+    // (하루 25회뿐인 무료 API 호출 수를 아끼기 위함)
     const data =
-      await response.json();
-
-
-    if (data["Note"]) {
-
-      throw new Error(
-        "API 요청 제한"
+      await getFundamentals(
+        ticker
       );
-
-    }
-
-
-    if (data["Error Message"]) {
-
-      throw new Error(
-        "티커를 확인할 수 없습니다."
-      );
-
-    }
 
 
     const name =
@@ -2133,12 +2065,6 @@
       );
 
     }
-
-
-    localStorage.setItem(
-      companyCacheKey,
-      name
-    );
 
 
     return name;
