@@ -6,14 +6,6 @@
 
   <title>Portfolio Manager</title>
 
-<div
-  id="lastPriceUpdate"
-  class="dashboard-update-time"
->
-  마지막 시세 업데이트: 아직 없음
-</div>
-
-
   <style>
 
     * {
@@ -643,6 +635,13 @@
       font-size: 10px;
     }
 
+    .last-updated {
+      margin-top: 6px;
+      color: #718096;
+      font-size: 10px;
+      line-height: 1.4;
+    }
+
     .portfolio-mobile {
       display: none;
     }
@@ -666,31 +665,6 @@
       gap: 10px;
       padding-bottom: 10px;
       border-bottom: 1px solid #202936;
-    }
-
-    .holding-card-identity {
-      min-width: 0;
-      flex: 1 1 auto;
-    }
-
-    .holding-card-price {
-      flex: 0 0 auto;
-      text-align: right;
-      min-width: 72px;
-    }
-
-    .holding-card-price span {
-      display: block;
-      color: #707b89;
-      font-size: 8px;
-      margin-bottom: 2px;
-    }
-
-    .holding-card-price strong {
-      display: block;
-      color: #f1f4f7;
-      font-size: 13px;
-      font-weight: 800;
     }
 
     .holding-card-ticker {
@@ -978,102 +952,7 @@
 
     }
 
-
-    /* =========================================================
-       Dashboard v6 — 모바일 정보 우선순위 개선
-    ========================================================= */
-
-    @media (max-width: 700px) {
-      .holding-card {
-        padding: 12px;
-        border-radius: 13px;
-        margin-bottom: 8px;
-      }
-
-      .holding-card-head {
-        gap: 7px;
-        padding-bottom: 9px;
-      }
-
-      .holding-card-ticker {
-        font-size: 17px;
-      }
-
-      .holding-card-company {
-        max-width: 150px;
-      }
-
-      .holding-card-price {
-        min-width: 68px;
-      }
-
-      .holding-card-price strong {
-        font-size: 12px;
-      }
-
-      .holding-card-score {
-        min-width: 52px;
-        padding: 5px 6px;
-        font-size: 14px;
-      }
-
-      .holding-main-grid {
-        grid-template-columns: 1fr 1fr;
-        gap: 6px;
-        margin-top: 8px;
-      }
-
-      .holding-main-item {
-        padding: 8px 9px;
-      }
-
-      .holding-main-value {
-        font-size: 12px;
-      }
-
-      .holding-weight-row,
-      .holding-target-row {
-        gap: 6px;
-        margin-top: 6px;
-      }
-
-      .holding-weight-box,
-      .holding-target-box {
-        padding: 7px 8px;
-      }
-
-      .holding-weight-value {
-        font-size: 12px;
-      }
-
-      .holding-rebalance {
-        margin-top: 6px;
-        padding: 8px 9px;
-      }
-
-      .holding-extra {
-        margin-top: 6px;
-        font-size: 8px;
-      }
-
-      .holding-actions {
-        margin-top: 7px;
-        grid-template-columns: 1fr 1fr 0.65fr;
-      }
-
-      .holding-actions button {
-        padding: 8px 4px;
-        font-size: 9px;
-      }
-    }
-
-  .dashboard-update-time {
-  margin-top: 4px;
-  margin-bottom: 14px;
-  font-size: 12px;
-  opacity: 0.65;
-}
-</style>
+  </style>
 </head>
 
 <body>
@@ -1088,7 +967,9 @@
       현재 비중 · 목표 비중 · 추천 비중 · 리밸런싱을 한눈에 관리합니다.
     </div>
 
-    <div class="build-version">Portfolio Manager</div>
+    <div class="build-version">Dashboard v7 · Mobile Dashboard</div>
+
+    <div id="lastUpdated" class="last-updated">최종 업데이트: 아직 없음</div>
 
   </header>
 
@@ -1505,6 +1386,9 @@
   const API_KEY_STORAGE =
     "portfolio_manager_alpha_key_v1";
 
+  const LAST_UPDATED_STORAGE =
+    "portfolio_manager_last_updated_v1";
+
   const PRICE_CACHE_KEY =
     "portfolio_manager_price_cache_v2";
 
@@ -1583,6 +1467,11 @@
 
   let fundamentalCache = {};
 
+  let lastUpdatedAt =
+    localStorage.getItem(
+      LAST_UPDATED_STORAGE
+    ) || null;
+
 
   /* =========================================================
      초기화
@@ -1598,7 +1487,46 @@
 
     loadFundamentalCache();
 
+    renderLastUpdated();
+
     renderPortfolio();
+
+  }
+
+
+  /* =========================================================
+     최종 업데이트 시간 표시
+  ========================================================= */
+
+  function renderLastUpdated() {
+
+    const element =
+      document.getElementById("lastUpdated");
+
+    if (!element) return;
+
+    if (!lastUpdatedAt) {
+      element.textContent = "최종 업데이트: 아직 없음";
+      return;
+    }
+
+    const date = new Date(lastUpdatedAt);
+
+    if (Number.isNaN(date.getTime())) {
+      element.textContent = "최종 업데이트: 아직 없음";
+      return;
+    }
+
+    element.textContent =
+      "최종 업데이트: " +
+      date.toLocaleString("ko-KR", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
 
   }
 
@@ -3026,11 +2954,11 @@
     const portfolio =
       calculatePortfolio();
 
-    const totalValue =
-      portfolio.totalValue;
 
     let totalAdd = 0;
+
     let totalReduce = 0;
+
 
     holdings.forEach(
       item => {
@@ -3039,24 +2967,30 @@
           getHoldingMarketData(item);
 
         const value =
-          Number(market.value) || 0;
+          market.value;
+
 
         const targetWeight =
-          Number(item.targetWeight) || 0;
+          Number(
+            item.targetWeight
+          ) || 0;
+
 
         const targetValue =
-          totalValue *
+          portfolio.totalValue *
           (
             targetWeight /
             100
           );
 
+
         const difference =
           targetValue -
           value;
 
+
         if (
-          difference > 0.01
+          difference > 0
         ) {
 
           totalAdd +=
@@ -3065,7 +2999,7 @@
         }
 
         else if (
-          difference < -0.01
+          difference < 0
         ) {
 
           totalReduce +=
@@ -3077,6 +3011,7 @@
 
       }
     );
+
 
     const targetTotal =
       holdings.reduce(
@@ -3093,30 +3028,25 @@
         0
       );
 
-    /*
-      목표 비중이 100% 미만이면
-      남은 비중은 현금/미배분으로 간주한다.
-    */
-    const unallocated =
-      totalValue > 0 &&
-      targetTotal < 100
-        ? totalValue *
-          (
-            (100 - targetTotal) /
-            100
-          )
-        : 0;
 
-    /*
-      net은 추가투입 필요액이다.
-      목표 비중 합계가 100%이면
-      매수금액과 매도금액이 이론적으로 거의 동일하다.
-    */
+    const unallocated =
+      Math.max(
+        0,
+        portfolio.totalValue *
+        (
+          (
+            100 -
+            targetTotal
+          ) /
+          100
+        )
+      );
+
+
     const net =
-      targetTotal >= 99.999 &&
-      targetTotal <= 100.001
-        ? totalAdd - totalReduce
-        : totalAdd;
+      totalAdd -
+      totalReduce;
+
 
     return {
 
@@ -3343,14 +3273,9 @@
           <div class="holding-card">
 
             <div class="holding-card-head">
-              <div class="holding-card-identity">
+              <div>
                 <div class="holding-card-ticker">${escapeHtml(item.ticker)}</div>
                 <div class="holding-card-company">${escapeHtml(item.companyName || "")}</div>
-              </div>
-
-              <div class="holding-card-price">
-                <span>현재가</span>
-                <strong>${money(price)}</strong>
               </div>
 
               <div class="holding-card-score ${scoreClass}">
@@ -7100,6 +7025,13 @@
 
     saveHoldings();
 
+    if (success > 0) {
+      lastUpdatedAt = new Date().toISOString();
+      localStorage.setItem(
+        LAST_UPDATED_STORAGE,
+        lastUpdatedAt
+      );
+    }
 
     localStorage.setItem(
       PRICE_CACHE_KEY,
@@ -7108,16 +7040,9 @@
       )
     );
 
-    if (success > 0) {
-      localStorage.setItem(
-        "portfolioLastPriceUpdate",
-        new Date().toISOString()
-      );
-    }
-
+    renderLastUpdated();
 
     renderPortfolio();
-    updateLastPriceUpdate();
 
 
     status.className =
@@ -7344,60 +7269,6 @@
           milliseconds
         )
     );
-
-  }
-
-
-
-  /* =========================================================
-     마지막 시세 업데이트
-  ========================================================= */
-
-  function updateLastPriceUpdate() {
-
-    const element =
-      document.getElementById(
-        "lastPriceUpdate"
-      );
-
-    if (!element) {
-      return;
-    }
-
-    const saved =
-      localStorage.getItem(
-        "portfolioLastPriceUpdate"
-      );
-
-    if (!saved) {
-      element.textContent =
-        "마지막 시세 업데이트: 아직 없음";
-      return;
-    }
-
-    const date =
-      new Date(saved);
-
-    if (
-      Number.isNaN(
-        date.getTime()
-      )
-    ) {
-      return;
-    }
-
-    element.textContent =
-      "마지막 시세 업데이트: " +
-      date.toLocaleString(
-        "ko-KR",
-        {
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit"
-        }
-      );
 
   }
 
