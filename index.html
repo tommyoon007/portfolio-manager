@@ -1826,6 +1826,23 @@
     }
 
 
+    // 영문 대문자, 숫자, 점(.), 하이픈(-)만 허용 (예: BRK.B)
+    const TICKER_PATTERN =
+      /^[A-Z0-9.\-]{1,10}$/;
+
+    if (
+      !TICKER_PATTERN.test(ticker)
+    ) {
+
+      alert(
+        "티커 형식이 올바르지 않습니다. 영문/숫자/점(.)/하이픈(-)만 최대 10자까지 입력하세요."
+      );
+
+      return;
+
+    }
+
+
     if (!avgPrice || avgPrice <= 0) {
 
       alert(
@@ -6593,8 +6610,10 @@
           holdings.length - 1
         ) {
 
+          // Alpha Vantage 무료 티어는 분당 5회 제한이라
+          // 넉넉하게 13초 간격을 둡니다.
           await sleep(
-            1200
+            13000
           );
 
         }
@@ -7010,8 +7029,10 @@
         success++;
 
 
+        // Alpha Vantage 무료 티어는 분당 5회 제한이라
+        // 넉넉하게 13초 간격을 둡니다.
         await sleep(
-          1200
+          13000
         );
 
 
