@@ -1018,7 +1018,7 @@
       브라우저의 LocalStorage에 저장합니다.
 
       무료 API의 요청 제한을 고려하여
-      시세와 회사명 및 재무 데이터는 캐시합니다.
+      시세와 재무 데이터는 캐시합니다. 시세는 최근 거래일 종가 기준입니다.
 
     </div>
 
@@ -1249,6 +1249,7 @@
 
       <div class="portfolio-actions">
         <button
+          id="refreshPricesButton"
           class="button-secondary"
           onclick="refreshPrices()"
         >
@@ -1256,6 +1257,7 @@
         </button>
 
         <button
+          id="recommendButton"
           class="button-recommend"
           onclick="calculateRecommendedWeights()"
         >
@@ -1265,8 +1267,12 @@
     </div>
 
     <div class="dashboard-note">
-      현재 비중을 기준으로 목표 비중과 리밸런싱 금액을 바로 확인합니다.
+      최근 거래일 종가를 기준으로 현재 비중과 목표 비중을 계산합니다.
+      시세가 없는 종목은 리밸런싱 계산에서 제외합니다.
     </div>
+
+    <div id="updateStatus" class="status"></div>
+    <div id="recommendStatus" class="status"></div>
 
     <div class="table-wrap">
 
@@ -2807,95 +2813,70 @@
   function getHoldingMarketData(item) {
 
     const currentPrice = Number(item.currentPrice);
-    const avgPrice = Number(item.avgPrice);
     const quantity = Number(item.quantity) || 0;
 
     const hasCurrentPrice =
       Number.isFinite(currentPrice) && currentPrice > 0;
 
-    const hasAveragePrice =
-      Number.isFinite(avgPrice) && avgPrice > 0;
-
-    const price =
-      hasCurrentPrice
-        ? currentPrice
-        : hasAveragePrice
-          ? avgPrice
-          : 0;
-
     return {
-      price: price,
-      value: price * quantity,
+      price: hasCurrentPrice ? currentPrice : null,
+      value: hasCurrentPrice ? currentPrice * quantity : null,
       quantity: quantity,
-      usingAveragePrice: !hasCurrentPrice && hasAveragePrice
+      hasPrice: hasCurrentPrice,
+      usingAveragePrice: false,
+      sourceDate: item.priceSourceDate || null
     };
 
   }
-
 
   function calculatePortfolio() {
 
     let totalCost = 0;
-
     let totalValue = 0;
+    let knownCost = 0;
+    let knownValue = 0;
+    let missingPriceCount = 0;
 
+    holdings.forEach(item => {
 
-    holdings.forEach(
-      item => {
+      const quantity = Number(item.quantity) || 0;
+      const avgPrice = Number(item.avgPrice);
+      const cost =
+        Number.isFinite(avgPrice) && avgPrice > 0
+          ? avgPrice * quantity
+          : 0;
 
-        const market =
-          getHoldingMarketData(item);
+      totalCost += cost;
 
-        const cost =
-          Number(item.avgPrice) *
-          market.quantity;
+      const market = getHoldingMarketData(item);
 
-        const value =
-          market.value;
-
-
-        totalCost += cost;
-
-        totalValue += value;
-
+      if (market.hasPrice) {
+        knownCost += cost;
+        knownValue += market.value;
+        totalValue += market.value;
+      } else {
+        missingPriceCount++;
       }
-    );
 
+    });
 
-    const totalProfit =
-      totalValue -
-      totalCost;
-
-
+    const totalProfit = knownValue - knownCost;
     const totalReturn =
-      totalCost > 0
-
-        ? (
-            totalProfit /
-            totalCost
-          ) * 100
-
-        : 0;
-
+      knownCost > 0
+        ? (totalProfit / knownCost) * 100
+        : null;
 
     return {
-
-      totalCost:
-        totalCost,
-
-      totalValue:
-        totalValue,
-
-      totalProfit:
-        totalProfit,
-
-      totalReturn:
-        totalReturn
-
+      totalCost: totalCost,
+      totalValue: totalValue,
+      totalProfit: totalProfit,
+      totalReturn: totalReturn,
+      knownCost: knownCost,
+      knownValue: knownValue,
+      missingPriceCount: missingPriceCount
     };
 
   }
-
 
   /* =========================================================
      리밸런싱 계산
@@ -2917,6 +2898,10 @@
 
         const market =
           getHoldingMarketData(item);
+
+        if (!market.hasPrice) {
+          return;
+        }
 
         const value =
           market.value;
@@ -3152,22 +3137,20 @@
           market.value;
 
         const priceLabel =
-          market.usingAveragePrice
-            ? "현재가 없음 · 평균가 기준"
-            : "현재가";
+          market.hasPrice ? "최근 종가" : "시세 없음";
 
         const profit =
-          value - cost;
+          market.hasPrice ? value - cost : null;
 
         const returnRate =
-          cost > 0
+          market.hasPrice && cost > 0
             ? (profit / cost) * 100
             : null;
 
         const weight =
-          portfolio.totalValue > 0
+          market.hasPrice && portfolio.totalValue > 0
             ? (value / portfolio.totalValue) * 100
-            : 0;
+            : null;
 
         const targetWeight =
           Number(item.targetWeight) || 0;
@@ -3179,13 +3162,13 @@
             : null;
 
         const weightDifference =
-          targetWeight - weight;
+          weight === null ? null : targetWeight - weight;
 
         const targetValue =
           portfolio.totalValue * (targetWeight / 100);
 
         const rebalanceAmount =
-          targetValue - (value || 0);
+          market.hasPrice ? targetValue - value : null;
 
         const profitClass =
           profit > 0
@@ -3208,18 +3191,22 @@
               : "neutral";
 
         const rebalanceClass =
-          rebalanceAmount > 0.01
-            ? "rebalance-add"
-            : rebalanceAmount < -0.01
-              ? "rebalance-reduce"
-              : "rebalance-neutral";
+          rebalanceAmount === null
+            ? "rebalance-neutral"
+            : rebalanceAmount > 0.01
+              ? "rebalance-add"
+              : rebalanceAmount < -0.01
+                ? "rebalance-reduce"
+                : "rebalance-neutral";
 
         const differenceClass =
-          weightDifference > 0.01
-            ? "positive"
-            : weightDifference < -0.01
-              ? "negative"
-              : "neutral";
+          weightDifference === null
+            ? "neutral"
+            : weightDifference > 0.01
+              ? "positive"
+              : weightDifference < -0.01
+                ? "negative"
+                : "neutral";
 
         return `
           <div class="holding-card">
@@ -3288,7 +3275,7 @@
               <div class="holding-target-box">
                 <div class="holding-weight-label">목표와 현재 차이</div>
                 <div class="holding-weight-value ${differenceClass}" style="margin-top:9px;">
-                  ${weightDifference > 0 ? "+" : ""}${percent(weightDifference)}
+                  ${weightDifference === null ? "확인 필요" : (weightDifference > 0 ? "+" : "") + percent(weightDifference)}
                 </div>
               </div>
             </div>
@@ -3297,17 +3284,20 @@
               <span class="holding-rebalance-label">리밸런싱</span>
               <strong class="${rebalanceClass}">
                 ${
-                  rebalanceAmount > 0.01
+                  rebalanceAmount !== null && rebalanceAmount > 0.01
                     ? "+ " + money(rebalanceAmount) + " 매수"
-                    : rebalanceAmount < -0.01
+                    : rebalanceAmount !== null && rebalanceAmount < -0.01
                       ? "- " + money(Math.abs(rebalanceAmount)) + " 매도"
-                      : "유지"
+                      : rebalanceAmount === null
+                        ? "시세 필요"
+                        : "유지"
                 }
               </strong>
             </div>
 
             <div class="holding-extra">
               <span>${priceLabel} ${money(price)}</span>
+              <span>기준일 ${market.sourceDate || "-"}</span>
               <span>평균 ${money(item.avgPrice)}</span>
               <span>수량 ${numberFormat(item.quantity)}</span>
               <span>목표금액 ${money(targetValue)}</span>
@@ -3410,28 +3400,17 @@
 
 
           const profit =
-            value -
-            cost;
+            market.hasPrice ? value - cost : null;
 
           const returnRate =
-            cost > 0
-
-              ? (
-                  profit /
-                  cost
-                ) * 100
-
+            market.hasPrice && cost > 0
+              ? (profit / cost) * 100
               : null;
 
           const weight =
-            portfolio.totalValue > 0
-
-              ? (
-                  value /
-                  portfolio.totalValue
-                ) * 100
-
-              : 0;
+            market.hasPrice && portfolio.totalValue > 0
+              ? (value / portfolio.totalValue) * 100
+              : null;
 
 
           const targetWeight =
@@ -3452,8 +3431,7 @@
 
 
           const weightDifference =
-            targetWeight -
-            weight;
+            weight === null ? null : targetWeight - weight;
 
 
           const targetValue =
@@ -3465,10 +3443,9 @@
 
 
           const rebalanceAmount =
-            targetValue -
-            (
-              value || 0
-            );
+            market.hasPrice
+              ? targetValue - value
+              : null;
 
 
           let profitClass =
@@ -3505,6 +3482,7 @@
 
 
           if (
+            rebalanceAmount !== null &&
             rebalanceAmount > 0.01
           ) {
 
@@ -3514,6 +3492,7 @@
           }
 
           else if (
+            rebalanceAmount !== null &&
             rebalanceAmount < -0.01
           ) {
 
@@ -3603,16 +3582,13 @@
 
 
               <td>
-                ${money(
-                  price
-                )}
+                <div>${money(price)}</div>
+                <div class="last-update">${market.hasPrice ? (market.sourceDate || "최근 거래일") : "시세 없음"}</div>
               </td>
 
 
               <td>
-                ${money(
-                  value
-                )}
+                ${money(value)}
               </td>
 
 
@@ -3645,9 +3621,7 @@
                 <div class="weight-container">
 
                   <div class="weight-number">
-                    ${percent(
-                      weight
-                    )}
+                    ${weight !== null ? percent(weight) : "확인 필요"}
                   </div>
 
                   <div class="weight-bar">
@@ -3655,10 +3629,7 @@
                     <div
                       class="weight-fill"
                       style="
-                        width:${Math.min(
-                          weight,
-                          100
-                        )}%
+                        width:${Math.min(weight || 0, 100)}%
                       "
                     ></div>
 
@@ -3783,9 +3754,9 @@
 
               <td
                 class="${
-                  weightDifference > 0.01
+                  weightDifference !== null && weightDifference > 0.01
                     ? "positive"
-                    : weightDifference < -0.01
+                    : weightDifference !== null && weightDifference < -0.01
                       ? "negative"
                       : "neutral"
                 }"
@@ -3812,14 +3783,14 @@
               >
 
                 ${
-                  rebalanceAmount > 0.01
+                  rebalanceAmount !== null && rebalanceAmount > 0.01
 
                     ? "+ " +
                       money(
                         rebalanceAmount
                       )
 
-                    : rebalanceAmount < -0.01
+                    : rebalanceAmount !== null && rebalanceAmount < -0.01
 
                       ? "- " +
                         money(
@@ -4217,25 +4188,57 @@
 
 
     returnElement.textContent =
-      percent(
-        portfolio.totalReturn
-      );
+      portfolio.totalReturn === null
+        ? "확인 필요"
+        : percent(portfolio.totalReturn);
 
 
     returnElement.className =
       "summary-value " +
 
       (
-        portfolio.totalReturn > 0
-
-          ? "positive"
-
-          : portfolio.totalReturn < 0
-
-            ? "negative"
-
-            : "neutral"
+        portfolio.totalReturn === null
+          ? "neutral"
+          : portfolio.totalReturn > 0
+            ? "positive"
+            : portfolio.totalReturn < 0
+              ? "negative"
+              : "neutral"
       );
+
+    const missingPriceNotice =
+      document.getElementById("missingPriceNotice");
+
+    if (missingPriceNotice) {
+      missingPriceNotice.textContent =
+        portfolio.missingPriceCount > 0
+          ? `⚠️ ${portfolio.missingPriceCount}개 종목의 최근 종가가 없습니다. 해당 종목은 평가·리밸런싱 계산에서 제외됩니다.`
+          : "";
+      missingPriceNotice.className =
+        portfolio.missingPriceCount > 0
+          ? "status negative"
+          : "status";
+    }
+
+  }
+
+
+  /* =========================================================
+     재무 캐시 유효성
+  ========================================================= */
+
+  function hasFreshFundamentalCache(ticker) {
+
+    const cached = fundamentalCache[ticker];
+
+    if (!cached || !cached.savedAt || !cached.data) {
+      return false;
+    }
+
+    const age = Date.now() - new Date(cached.savedAt).getTime();
+    const sevenDays = 7 * 24 * 60 * 60 * 1000;
+
+    return Number.isFinite(age) && age >= 0 && age < sevenDays;
 
   }
 
@@ -5501,6 +5504,15 @@
       ],
 
       [
+        "FCF",
+        [
+          "FreeCashFlow",
+          "FreeCashFlowTTM",
+          "CapitalExpenditures"
+        ]
+      ],
+
+      [
         "매출",
         [
           "RevenueTTM"
@@ -5588,6 +5600,35 @@
 
     };
 
+  }
+
+
+  /* =========================================================
+     FCF 보조지표
+  ========================================================= */
+
+  function getFreeCashFlow(data) {
+    const direct = firstNumber(data, ["FreeCashFlow", "FreeCashFlowTTM"]);
+    if (direct !== null) return direct;
+    const ocf = firstNumber(data, ["OperatingCashflow", "OperatingCashFlow"]);
+    const capex = firstNumber(data, ["CapitalExpenditures", "CapitalExpenditure", "CapitalExpendituresTTM"]);
+    if (ocf !== null && capex !== null) return ocf - Math.abs(capex);
+    return null;
+  }
+
+  function freeCashFlowScore(data) {
+    const fcf = getFreeCashFlow(data);
+    const revenue = firstNumber(data, ["RevenueTTM"]);
+    if (fcf === null) return 5;
+    if (revenue === null || revenue <= 0) return fcf > 0 ? 8 : 2;
+    const margin = (fcf / revenue) * 100;
+    if (margin >= 20) return 10;
+    if (margin >= 15) return 9;
+    if (margin >= 10) return 8;
+    if (margin >= 5) return 7;
+    if (margin >= 0) return 5;
+    if (margin >= -5) return 3;
+    return 1;
   }
 
 
@@ -5725,12 +5766,15 @@
       );
 
 
+    const freeCashFlow = freeCashFlowScore(data);
+
     const total =
-      growth +
-      profitability +
+      (growth * (25 / 30)) +
+      (profitability * (20 / 25)) +
       financialStrength +
       valuation +
-      risk;
+      risk +
+      freeCashFlow;
 
 
     const quality =
@@ -5894,6 +5938,9 @@
 
       risk:
         risk,
+
+      freeCashFlow:
+        freeCashFlow,
 
       dataQuality:
         quality,
@@ -6363,6 +6410,7 @@
     let success = 0;
 
     let failed = 0;
+    let apiCalls = 0;
 
 
     try {
@@ -6389,6 +6437,8 @@
           ")";
 
 
+        let needsFundamentalApi = false;
+
         try {
 
           let data = {};
@@ -6407,9 +6457,18 @@
             미등록 티커만 OVERVIEW의 AssetType으로 추가 판별합니다.
           */
 
+          needsFundamentalApi =
+            assetType === "STOCK" &&
+            !hasFreshFundamentalCache(item.ticker);
+
           if (
             assetType === "STOCK"
           ) {
+
+            if (needsFundamentalApi) {
+              apiCalls++;
+              usedFundamentalApi = true;
+            }
 
             data =
               await getFundamentals(
@@ -6532,16 +6591,11 @@
 
 
         if (
-          i <
-          holdings.length - 1
+          i < holdings.length - 1 &&
+          usedFundamentalApi
         ) {
-
-          // Alpha Vantage 무료 티어는 분당 5회 제한이라
-          // 넉넉하게 13초 간격을 둡니다.
-          await sleep(
-            13000
-          );
-
+          // API 호출 사이에 충분한 간격을 둡니다.
+          await sleep(13000);
         }
 
       }
@@ -6605,6 +6659,9 @@
               financialStrength:
                 result.details.financialStrength,
 
+              freeCashFlow:
+                result.details.freeCashFlow,
+
               valuation:
                 result.details.valuation,
 
@@ -6639,9 +6696,11 @@
         "개 / " +
         "실패 " +
         failed +
-        "개" +
+        "개 / 신규 API 호출 " +
+        apiCalls +
+        "회" +
         "<br>" +
-        "성장성·수익성·재무건전성·현금흐름·밸류에이션·위험도를 종합했습니다." +
+        "성장성·수익성·재무건전성·FCF·밸류에이션·위험도를 종합했습니다." +
         "<br><br>" +
 
         '<button ' +
@@ -6859,10 +6918,11 @@
 
 
     const status =
-      document.getElementById(
-        "updateStatus"
-      );
+      document.getElementById("updateStatus");
+    const button =
+      document.getElementById("refreshPricesButton");
 
+    if (button) button.disabled = true;
 
     status.className =
       "status loading";
@@ -6889,34 +6949,17 @@
           ];
 
 
-        const today =
-          new Date()
-          .toISOString()
-          .slice(
-            0,
-            10
-          );
+        const cacheAge = cached && cached.fetchedAt
+          ? Date.now() - new Date(cached.fetchedAt).getTime()
+          : Infinity;
 
-
-        if (
-          cached &&
-          cached.date === today
-        ) {
-
-          item.currentPrice =
-            cached.price;
-
-
-          item.updatedAt =
-            cached.updatedAt;
-
-
+        if (cached && Number.isFinite(cacheAge) && cacheAge >= 0 && cacheAge < 24 * 60 * 60 * 1000) {
+          item.currentPrice = cached.price;
+          item.updatedAt = cached.updatedAt || cached.fetchedAt;
+          item.priceSourceDate = cached.sourceDate || cached.date || null;
           success++;
-
           continue;
-
         }
-
 
         const result =
           await getPrice(
@@ -6928,35 +6971,22 @@
           result.price;
 
 
-        item.updatedAt =
-          new Date()
-          .toISOString();
+        item.updatedAt = new Date().toISOString();
+        item.priceSourceDate = result.date;
 
-
-        priceCache[
-          item.ticker
-        ] = {
-
-          price:
-            result.price,
-
-          date:
-            today,
-
-          updatedAt:
-            item.updatedAt,
-
-          sourceDate:
-            result.date
-
+        priceCache[item.ticker] = {
+          price: result.price,
+          fetchedAt: item.updatedAt,
+          updatedAt: item.updatedAt,
+          sourceDate: result.date,
+          date: result.date
         };
 
 
         success++;
 
 
-        // Alpha Vantage 무료 티어는 분당 5회 제한이라
-        // 넉넉하게 13초 간격을 둡니다.
+        // API 호출 간격을 확보합니다.
         await sleep(
           13000
         );
@@ -7007,19 +7037,11 @@
 
     status.textContent =
       "업데이트 완료 — " +
+      "성공 " + success + "개 / " +
+      "실패 " + failed + "개 / " +
+      new Date().toLocaleString("ko-KR");
 
-      "성공 " +
-      success +
-      "개 / " +
-
-      "실패 " +
-      failed +
-      "개 / " +
-
-      new Date()
-      .toLocaleString(
-        "ko-KR"
-      );
+    if (button) button.disabled = false;
 
   }
 
@@ -7234,7 +7256,6 @@
   ========================================================= */
 
   init();
-  updateLastUpdated();
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", function () {
