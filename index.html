@@ -1327,7 +1327,7 @@
 
       <div style="margin-top:10px;">
 
-      <strong>추천 비중 엔진 v3</strong><br>
+      <strong>추천 비중 엔진 v4</strong><br>
 
       성장성 25% + 수익성 20% + 재무건전성 20% + FCF 10% +
       밸류에이션 15% + 위험도 10%를 이용해
@@ -1345,8 +1345,8 @@
 
       <br>
 
-      <strong>재무건전성·현금흐름</strong>:
-      부채비율 + 유동비율 + 영업현금흐름
+      <strong>재무건전성</strong>:
+      부채비율 + 유동비율 + 영업현금흐름 + 순부채/EBITDA + 이자보상배율
 
       <br>
 
@@ -1355,8 +1355,13 @@
 
       <br>
 
+      <strong>FCF</strong>:
+      FCF 마진 + FCF Yield
+
+      <br>
+
       <strong>위험도</strong>:
-      Beta가 낮을수록 높은 점수
+      Beta + 순부채/EBITDA + 이자보상배율 + 희석차이
 
       <br><br>
 
@@ -1375,8 +1380,9 @@
 
       <br><br>
 
-      추천비중은 종목당 최대 <strong>30%</strong>로 제한하고,
-      남은 비중은 점수에 따라 다시 배분합니다.
+      추천비중은 종목당 최대 <strong>30%</strong>로 제한합니다.
+      상한 때문에 100%를 채울 수 없는 경우 남은 비중은
+      <strong>현금·미배분</strong>으로 남깁니다.
 
       <br><br>
 
@@ -4741,13 +4747,13 @@
 
 
   /* =========================================================
-     추천 점수 엔진 v2
+     추천 점수 엔진 v4
      총 100점
 
      성장성       25
      수익성       20
      재무건전성   20
-     현금흐름     10
+     FCF          10
      밸류에이션   15
      위험도       10
   ========================================================= */
@@ -4841,22 +4847,34 @@
 
   function getInterestCoverage(data) {
 
+    // 가능하면 EBIT(영업이익)를 사용하고, 해당 데이터가 없으면 EBITDA를 대체값으로 사용합니다.
+    const operatingIncome = firstNumber(data, [
+      "OperatingIncomeTTM",
+      "OperatingIncome"
+    ]);
+
     const ebitda = firstNumber(data, ["EBITDA"]);
+
     const interest = firstNumber(data, [
       "InterestExpenseTTM",
       "InterestExpense",
       "InterestExpenseNonOperating"
     ]);
 
+    const numerator =
+      operatingIncome !== null
+        ? operatingIncome
+        : ebitda;
+
     if (
-      ebitda === null ||
+      numerator === null ||
       interest === null ||
       interest <= 0
     ) {
       return null;
     }
 
-    return ebitda / interest;
+    return numerator / interest;
   }
 
 
@@ -4985,45 +5003,44 @@
 
 
   function freeCashFlowScore(data) {
+
     const fcf = getFreeCashFlow(data);
     const revenue = firstNumber(data, ["RevenueTTM"]);
-
-    if (fcf === null) return 5;
-    if (revenue === null || revenue <= 0) return fcf > 0 ? 8 : 2;
-
-    const margin = (fcf / revenue) * 100;
-
-    if (margin >= 20) return 10;
-    if (margin >= 15) return 9;
-    if (margin >= 10) return 8;
-    if (margin >= 5) return 7;
-    if (margin >= 0) return 5;
-    if (margin >= -5) return 3;
-    return 0;
-  }
-
-
-  function fcfYieldScore(data) {
-    const fcf = getFreeCashFlow(data);
     const marketCap = firstNumber(data, ["MarketCapitalization"]);
 
-    if (
-      fcf === null ||
-      marketCap === null ||
-      marketCap <= 0
-    ) {
-      return 1.5;
+    // FCF 10점 = FCF 마진 5점 + FCF Yield 5점
+    let marginPart = 2.5;
+    let yieldPart = 2.5;
+
+    if (fcf !== null) {
+      if (revenue !== null && revenue > 0) {
+        const margin = (fcf / revenue) * 100;
+        if (margin >= 20) marginPart = 5;
+        else if (margin >= 15) marginPart = 4.5;
+        else if (margin >= 10) marginPart = 4;
+        else if (margin >= 5) marginPart = 3.5;
+        else if (margin >= 0) marginPart = 2.5;
+        else if (margin >= -5) marginPart = 1.5;
+        else marginPart = 0;
+      }
+
+      if (marketCap !== null && marketCap > 0) {
+        const yieldPercent = (fcf / marketCap) * 100;
+        if (yieldPercent >= 10) yieldPart = 5;
+        else if (yieldPercent >= 7) yieldPart = 4.5;
+        else if (yieldPercent >= 5) yieldPart = 4;
+        else if (yieldPercent >= 3) yieldPart = 3.5;
+        else if (yieldPercent >= 1) yieldPart = 2.5;
+        else if (yieldPercent >= 0) yieldPart = 1.5;
+        else yieldPart = 0;
+      }
     }
 
-    const yieldPercent = (fcf / marketCap) * 100;
-
-    if (yieldPercent >= 10) return 3;
-    if (yieldPercent >= 7) return 2.8;
-    if (yieldPercent >= 5) return 2.5;
-    if (yieldPercent >= 3) return 2.2;
-    if (yieldPercent >= 1) return 1.7;
-    if (yieldPercent >= 0) return 1;
-    return 0;
+    return clamp(
+      marginPart + yieldPart,
+      0,
+      10
+    );
   }
 
 
@@ -5034,6 +5051,7 @@
     const ps = safeNumber(data["PriceToSalesRatioTTM"]);
     const evEbitda = safeNumber(data["EVToEBITDA"]);
 
+    // 밸류에이션 15점 = PEG 4 + PER 4 + PSR 3 + EV/EBITDA 4
     let pegPart = 2;
     let pePart = 2;
     let psPart = 1.5;
@@ -5049,33 +5067,33 @@
     }
 
     if (pe !== null && pe > 0) {
-      if (pe <= 15) pePart = 3;
-      else if (pe <= 20) pePart = 2.7;
-      else if (pe <= 30) pePart = 2.3;
-      else if (pe <= 40) pePart = 1.6;
-      else if (pe <= 60) pePart = 0.8;
+      if (pe <= 15) pePart = 4;
+      else if (pe <= 20) pePart = 3.6;
+      else if (pe <= 30) pePart = 3;
+      else if (pe <= 40) pePart = 2.2;
+      else if (pe <= 60) pePart = 1;
       else pePart = 0;
     }
 
     if (ps !== null && ps > 0) {
-      if (ps <= 2) psPart = 2;
-      else if (ps <= 4) psPart = 1.7;
-      else if (ps <= 8) psPart = 1.4;
-      else if (ps <= 15) psPart = 0.7;
+      if (ps <= 2) psPart = 3;
+      else if (ps <= 4) psPart = 2.6;
+      else if (ps <= 8) psPart = 2.1;
+      else if (ps <= 15) psPart = 1;
       else psPart = 0;
     }
 
     if (evEbitda !== null && evEbitda > 0) {
-      if (evEbitda <= 10) evPart = 3;
-      else if (evEbitda <= 15) evPart = 2.7;
-      else if (evEbitda <= 20) evPart = 2.3;
-      else if (evEbitda <= 30) evPart = 1.6;
-      else if (evEbitda <= 50) evPart = 0.8;
+      if (evEbitda <= 10) evPart = 4;
+      else if (evEbitda <= 15) evPart = 3.6;
+      else if (evEbitda <= 20) evPart = 3;
+      else if (evEbitda <= 30) evPart = 2.2;
+      else if (evEbitda <= 50) evPart = 1;
       else evPart = 0;
     }
 
     return clamp(
-      pegPart + pePart + psPart + evPart + fcfYieldScore(data),
+      pegPart + pePart + psPart + evPart,
       0,
       15
     );
@@ -5295,7 +5313,8 @@
 
   /* =========================================================
      추천 점수 → 비중 변환
-     최대 30% 제한
+     종목당 최대 30% 제한.
+     30% 상한으로 100%를 채울 수 없으면 미배분을 현금 영역으로 유지합니다.
   ========================================================= */
 
   function convertScoresToWeights(
@@ -6020,7 +6039,7 @@
         apiCalls +
         "회" +
         "<br>" +
-        "성장성·수익성·재무건전성·FCF·밸류에이션·시장/재무위험을 종합했습니다. 데이터 부족분은 신뢰도에 반영했습니다." +
+        "성장성·수익성·재무건전성·FCF·밸류에이션·위험도를 종합했습니다. 데이터 부족분은 신뢰도에 반영했습니다." +
         (failures.length
           ? "<br><span style=\"color:#f6ad55\">일부 종목: " +
             escapeHtml(failures.slice(0, 3).join(" / ")) +
