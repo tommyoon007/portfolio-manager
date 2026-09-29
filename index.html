@@ -5137,35 +5137,52 @@
 
   function calculateDataQuality(data) {
 
-    const fields = [
-      ["매출 성장률", ["QuarterlyRevenueGrowthYOY"]],
-      ["이익 성장률", ["QuarterlyEarningsGrowthYOY"]],
-      ["영업이익률", ["OperatingMarginTTM"]],
-      ["ROE", ["ReturnOnEquityTTM"]],
-      ["부채비율", ["DebtToEquity", "DebtEquityRatio"]],
-      ["유동비율", ["CurrentRatio"]],
-      ["영업현금흐름", ["OperatingCashflow", "OperatingCashFlow"]],
-      ["FCF", ["FreeCashFlow", "FreeCashFlowTTM", "CapitalExpenditures"]],
-      ["매출", ["RevenueTTM"]],
-      ["시가총액", ["MarketCapitalization"]],
-      ["EBITDA", ["EBITDA"]],
-      ["PEG", ["PEGRatio"]],
-      ["PER", ["PERatio", "TrailingPE"]],
-      ["PSR", ["PriceToSalesRatioTTM"]],
-      ["EV/EBITDA", ["EVToEBITDA"]],
-      ["Beta", ["Beta"]],
-      ["이자보상배율", ["InterestExpenseTTM", "InterestExpense", "InterestExpenseNonOperating"]],
-      ["희석주식수", ["DilutedSharesOutstanding", "DilutedShares"]]
+    const hasNumber = fields =>
+      firstNumber(data, fields) !== null;
+
+    const hasFreeCashFlow =
+      getFreeCashFlow(data) !== null;
+
+    const hasNetDebtEbitda =
+      getNetDebtToEbitda(data) !== null;
+
+    const hasInterestCoverage =
+      getInterestCoverage(data) !== null;
+
+    const hasDilution =
+      getDilutionGap(data) !== null;
+
+    const checks = [
+      hasNumber(["QuarterlyRevenueGrowthYOY"]),
+      hasNumber(["QuarterlyEarningsGrowthYOY"]),
+      hasNumber(["OperatingMarginTTM"]),
+      hasNumber(["ReturnOnEquityTTM"]),
+      hasNumber(["DebtToEquity", "DebtEquityRatio"]),
+      hasNumber(["CurrentRatio"]),
+      hasNumber(["OperatingCashflow", "OperatingCashFlow"]),
+      hasFreeCashFlow,
+      hasNumber(["RevenueTTM"]),
+      hasNumber(["MarketCapitalization"]),
+      hasNumber(["EBITDA"]),
+      hasNumber(["PEGRatio"]),
+      hasNumber(["PERatio", "TrailingPE"]),
+      hasNumber(["PriceToSalesRatioTTM"]),
+      hasNumber(["EVToEBITDA"]),
+      hasNumber(["Beta"]),
+      hasNetDebtEbitda,
+      hasInterestCoverage,
+      hasDilution
     ];
 
-    let available = 0;
+    const available =
+      checks.filter(Boolean).length;
 
-    fields.forEach(fieldInfo => {
-      if (firstNumber(data, fieldInfo[1]) !== null) available++;
-    });
+    const total = checks.length;
 
-    const total = fields.length;
-    const percent = total > 0 ? (available / total) * 100 : 0;
+    const percent =
+      total > 0
+        ? (available / total) * 100
+        : 0;
 
     return {
       available,
@@ -5655,17 +5672,6 @@
       );
 
 
-    if (!apiKey) {
-
-      alert(
-        "먼저 Alpha Vantage API Key를 저장하세요."
-      );
-
-      return;
-
-    }
-
-
     const button =
       document.getElementById(
         "recommendButton"
@@ -5700,6 +5706,18 @@
     let rateLimited = false;
     const failures = [];
 
+    const needsAnyApiCall = holdings.some(item => {
+      const type = detectAssetType(item.ticker, null);
+      return type === "STOCK" && !hasFreshFundamentalCache(item.ticker);
+    });
+
+    if (needsAnyApiCall && !apiKey) {
+      button.disabled = false;
+      status.className = "status error";
+      status.textContent =
+        "신규 재무 데이터를 조회하려면 Alpha Vantage API Key가 필요합니다. 캐시된 데이터만 있는 경우에는 API Key 없이 계산할 수 있습니다.";
+      return;
+    }
 
     try {
 
@@ -6003,6 +6021,12 @@
         "회" +
         "<br>" +
         "성장성·수익성·재무건전성·FCF·밸류에이션·시장/재무위험을 종합했습니다. 데이터 부족분은 신뢰도에 반영했습니다." +
+        (failures.length
+          ? "<br><span style=\"color:#f6ad55\">일부 종목: " +
+            escapeHtml(failures.slice(0, 3).join(" / ")) +
+            (failures.length > 3 ? " 외 " + (failures.length - 3) + "개" : "") +
+            "</span>"
+          : "") +
         "<br><br>" +
 
         '<button ' +
@@ -6558,6 +6582,7 @@
   ========================================================= */
 
   init();
+
 
 </script>
 
