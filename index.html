@@ -6384,8 +6384,9 @@
   /* =========================================================
      시세 조회
      - Twelve Data 배치 API 사용
-     - 최대 120종목을 한 번의 HTTP 요청으로 조회 가능
-     - 30종목 포트폴리오도 1회 요청으로 처리
+     - Basic 무료 플랜의 분당 8 credits 제한에 맞춰 8종목씩 배치
+     - 30종목 포트폴리오는 4회 요청으로 처리
+     - 배치 사이 61초 대기하여 429 방지
      - Alpha Vantage는 재무/추천 데이터에만 사용
   ========================================================= */
 
@@ -6412,9 +6413,11 @@
 
     const results = {};
 
-    for (let i = 0; i < uniqueTickers.length; i += 100) {
+    const BATCH_SIZE = 8;
 
-      const chunk = uniqueTickers.slice(i, i + 100);
+    for (let i = 0; i < uniqueTickers.length; i += BATCH_SIZE) {
+
+      const chunk = uniqueTickers.slice(i, i + BATCH_SIZE);
 
       const url =
         "https://api.twelvedata.com/price" +
@@ -6465,6 +6468,12 @@
           };
         }
       }
+
+      // Twelve Data Basic 무료 플랜은 분당 8 API credits이므로
+      // 8종목 배치마다 다음 분까지 기다립니다.
+      if (i + BATCH_SIZE < uniqueTickers.length) {
+        await sleep(61000);
+      }
     }
 
     return results;
@@ -6492,7 +6501,7 @@
     if (button) button.disabled = true;
 
     status.className = "status loading";
-    status.textContent = "시세를 한 번에 조회하는 중입니다...";
+    status.textContent = "시세를 8종목씩 조회하는 중입니다...";
 
     const activeHoldings = holdings.filter(item =>
       item &&
