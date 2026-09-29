@@ -3049,7 +3049,10 @@
       quantity: quantity,
       hasPrice: hasCurrentPrice,
       usingAveragePrice: false,
-      sourceDate: item.priceSourceDate || null
+      sourceDate: item.priceSourceDate || null,
+      priceStatus: item.priceStatus || "CLOSE",
+      priceLabel: item.priceLabel || "최근 종가",
+      priceSource: item.priceSource || "daily"
     };
 
   }
@@ -3371,7 +3374,7 @@
           market.value;
 
         const priceLabel =
-          market.hasPrice ? "최근 종가" : "시세 없음";
+          market.hasPrice ? (market.priceLabel || "최근 종가") : "시세 없음";
 
         const profit =
           market.hasPrice ? value - cost : null;
@@ -3568,7 +3571,7 @@
 
             <div class="holding-extra">
               <span>${priceLabel} ${money(price)}</span>
-              <span>기준일 ${market.sourceDate || "-"}</span>
+              <span>${market.priceSource === "intraday" ? "기준시각" : "기준일"} ${market.sourceDate || "-"}</span>
               <span>평균 ${money(item.avgPrice)}</span>
               <span>수량 ${numberFormat(item.quantity)}</span>
               <span>목표금액 ${money(targetValue)}</span>
@@ -3854,7 +3857,7 @@
 
               <td>
                 <div>${money(price)}</div>
-                <div class="last-update">${market.hasPrice ? (market.sourceDate || "최근 거래일") : "시세 없음"}</div>
+                <div class="last-update">${market.hasPrice ? escapeHtml(market.priceLabel || "최근 종가") : "시세 없음"}</div>
               </td>
 
 
@@ -6313,149 +6316,168 @@
 
   /* =========================================================
      시세 조회
+     - 가능하면 Alpha Vantage intraday(확장시간 포함)를 우선 시도
+     - 실시간/15분 지연/Intraday 권한이 없는 무료 키는 자동으로 일봉 종가로 fallback
   ========================================================= */
 
-  async function getPrice(
-    ticker
-  ) {
+  const INTRADAY_DISABLED_KEY = "portfolio_manager_intraday_disabled_until_v1";
 
-    const apiKey =
-      localStorage.getItem(
-        API_KEY_STORAGE
-      );
-
-
-    if (!apiKey) {
-
-      throw new Error(
-        "Alpha Vantage API Key가 없습니다."
-      );
-
-    }
-
-
-    const url =
-      "https://www.alphavantage.co/query" +
-
-      "?function=TIME_SERIES_DAILY" +
-
-      "&symbol=" +
-      encodeURIComponent(
-        ticker
-      ) +
-
-      "&outputsize=compact" +
-
-      "&apikey=" +
-      encodeURIComponent(
-        apiKey
-      );
-
-
-    const response =
-      await fetch(url);
-
-
-    if (!response.ok) {
-
-      throw new Error(
-        "API 통신 오류: " +
-        response.status
-      );
-
-    }
-
-
-    const data =
-      await response.json();
-
-
-    if (
-      data["Error Message"]
-    ) {
-
-      throw new Error(
-        ticker +
-        ": 존재하지 않는 티커일 가능성이 있습니다."
-      );
-
-    }
-
-
-    if (
-      data["Note"]
-    ) {
-
-      throw new Error(
-        "Alpha Vantage API 요청 제한에 도달했습니다."
-      );
-
-    }
-
-
-    const series =
-      data[
-        "Time Series (Daily)"
-      ];
-
-
-    if (!series) {
-
-      throw new Error(
-        ticker +
-        ": 시세 데이터를 받지 못했습니다."
-      );
-
-    }
-
-
-    const dates =
-      Object.keys(
-        series
-      )
-      .sort()
-      .reverse();
-
-
-    const latestDate =
-      dates[0];
-
-
-    const latestPrice =
-      Number(
-        series[
-          latestDate
-        ]["4. close"]
-      );
-
-
-    if (
-      !latestPrice ||
-      Number.isNaN(
-        latestPrice
-      )
-    ) {
-
-      throw new Error(
-        ticker +
-        ": 가격을 확인할 수 없습니다."
-      );
-
-    }
-
-
-    return {
-
-      price:
-        latestPrice,
-
-      date:
-        latestDate
-
-    };
-
+  function getIntradayDisabledUntil() {
+    return Number(localStorage.getItem(INTRADAY_DISABLED_KEY) || 0);
   }
 
+  function disableIntradayFor24Hours() {
+    localStorage.setItem(
+      INTRADAY_DISABLED_KEY,
+      String(Date.now() + 24 * 60 * 60 * 1000)
+    );
+  }
+
+  function classifyMarketPrice(timestamp) {
+    if (!timestamp) {
+      return { status: "CLOSE", label: "최근 종가" };
+    }
+
+    const match = String(timestamp).match(/ (\d{2}):(\d{2}):/);
+    if (!match) {
+      return { status: "CLOSE", label: "최근 종가" };
+    }
+
+    const minutes = Number(match[1]) * 60 + Number(match[2]);
+
+    if (minutes >= 240 && minutes < 570) {
+      return { status: "PRE", label: "프리마켓" };
+    }
+
+    if (minutes >= 570 && minutes < 960) {
+      return { status: "REGULAR", label: "정규장" };
+    }
+
+    if (minutes >= 960 && minutes <= 1200) {
+      return { status: "AFTER", label: "애프터마켓" };
+    }
+
+    return { status: "CLOSE", label: "최근 종가" };
+  }
+
+  async function getDailyClose(ticker, apiKey) {
+    const url =
+      "https://www.alphavantage.co/query" +
+      "?function=TIME_SERIES_DAILY" +
+      "&symbol=" + encodeURIComponent(ticker) +
+      "&outputsize=compact" +
+      "&apikey=" + encodeURIComponent(apiKey);
+
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error("API 통신 오류: " + response.status);
+    }
+
+    const data = await response.json();
+
+    if (data["Error Message"]) {
+      throw new Error(ticker + ": 존재하지 않는 티커일 가능성이 있습니다.");
+    }
+
+    if (data["Note"]) {
+      throw new Error("Alpha Vantage API 요청 제한에 도달했습니다.");
+    }
+
+    const series = data["Time Series (Daily)"];
+
+    if (!series) {
+      throw new Error(ticker + ": 일봉 시세 데이터를 받지 못했습니다.");
+    }
+
+    const dates = Object.keys(series).sort().reverse();
+    const latestDate = dates[0];
+    const latestPrice = Number(series[latestDate]["4. close"]);
+
+    if (!Number.isFinite(latestPrice) || latestPrice <= 0) {
+      throw new Error(ticker + ": 가격을 확인할 수 없습니다.");
+    }
+
+    return {
+      price: latestPrice,
+      date: latestDate,
+      status: "CLOSE",
+      label: "최근 종가",
+      source: "daily"
+    };
+  }
+
+  async function getPrice(ticker) {
+    const apiKey = localStorage.getItem(API_KEY_STORAGE);
+
+    if (!apiKey) {
+      throw new Error("Alpha Vantage API Key가 없습니다.");
+    }
+
+    /*
+      Alpha Vantage 공식 문서상 TIME_SERIES_INTRADAY는
+      4:00~20:00 ET의 프리/정규/애프터 데이터를 제공하지만
+      realtime/15분 delayed 및 intraday 접근은 premium entitlement가 필요하다.
+      따라서 먼저 시도하고 권한이 없으면 24시간 동안 일봉 fallback을 사용한다.
+    */
+    const intradayDisabledUntil = getIntradayDisabledUntil();
+
+    if (Date.now() >= intradayDisabledUntil) {
+      try {
+        const intradayUrl =
+          "https://www.alphavantage.co/query" +
+          "?function=TIME_SERIES_INTRADAY" +
+          "&symbol=" + encodeURIComponent(ticker) +
+          "&interval=5min" +
+          "&extended_hours=true" +
+          "&outputsize=compact" +
+          "&apikey=" + encodeURIComponent(apiKey);
+
+        const response = await fetch(intradayUrl);
+
+        if (response.ok) {
+          const data = await response.json();
+
+          if (!data["Note"] && !data["Error Message"]) {
+            const series =
+              data["Time Series (5min)"] ||
+              data["Time Series (5min) (5min)"];
+
+            if (series) {
+              const timestamps = Object.keys(series).sort().reverse();
+
+              if (timestamps.length > 0) {
+                const latestTimestamp = timestamps[0];
+                const latestPrice = Number(series[latestTimestamp]["4. close"]);
+
+                if (Number.isFinite(latestPrice) && latestPrice > 0) {
+                  const market = classifyMarketPrice(latestTimestamp);
+
+                  return {
+                    price: latestPrice,
+                    date: latestTimestamp,
+                    status: market.status,
+                    label: market.label,
+                    source: "intraday"
+                  };
+                }
+              }
+            }
+          }
+
+          /* premium/entitlement 제한이면 불필요한 재시도를 줄인다. */
+          if (data["Note"] || data["Error Message"] || !data["Time Series (5min)"]) {
+            disableIntradayFor24Hours();
+          }
+        }
+      } catch (error) {
+        console.warn("Intraday 조회 실패 — 일봉 fallback:", ticker, error);
+        disableIntradayFor24Hours();
+      }
+    }
+
+    return getDailyClose(ticker, apiKey);
+  }
 
   /* =========================================================
      시세 업데이트
@@ -6529,10 +6551,17 @@
           ? Date.now() - new Date(cached.fetchedAt).getTime()
           : Infinity;
 
-        if (cached && Number.isFinite(cacheAge) && cacheAge >= 0 && cacheAge < 24 * 60 * 60 * 1000) {
+        const cacheLimit = cached && cached.source === "intraday"
+          ? 10 * 60 * 1000
+          : 6 * 60 * 60 * 1000;
+
+        if (cached && Number.isFinite(cacheAge) && cacheAge >= 0 && cacheAge < cacheLimit) {
           item.currentPrice = cached.price;
           item.updatedAt = cached.updatedAt || cached.fetchedAt;
           item.priceSourceDate = cached.sourceDate || cached.date || null;
+          item.priceStatus = cached.status || "CLOSE";
+          item.priceLabel = cached.label || "최근 종가";
+          item.priceSource = cached.source || "daily";
           success++;
           continue;
         }
@@ -6549,13 +6578,19 @@
 
         item.updatedAt = new Date().toISOString();
         item.priceSourceDate = result.date;
+        item.priceStatus = result.status || "CLOSE";
+        item.priceLabel = result.label || "최근 종가";
+        item.priceSource = result.source || "daily";
 
         priceCache[item.ticker] = {
           price: result.price,
           fetchedAt: item.updatedAt,
           updatedAt: item.updatedAt,
           sourceDate: result.date,
-          date: result.date
+          date: result.date,
+          status: result.status || "CLOSE",
+          label: result.label || "최근 종가",
+          source: result.source || "daily"
         };
 
 
