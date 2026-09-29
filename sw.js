@@ -1,65 +1,27 @@
-const CACHE_NAME = "portfolio-manager-v3";
-const APP_SHELL = ["./", "./index.html", "./manifest.json"];
+const CACHE_NAME = "portfolio-manager-v4";
 
-self.addEventListener("install", function (event) {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(function (cache) {
-      return Promise.all(
-        APP_SHELL.map(function (url) {
-          return fetch(url, { cache: "no-store" })
-            .then(function (response) {
-              if (response && response.ok) {
-                return cache.put(url, response);
-              }
-            })
-            .catch(function () {});
-        })
-      );
-    })
-  );
+self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
-self.addEventListener("activate", function (event) {
+self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then(function (keys) {
-      return Promise.all(
+    caches.keys().then((keys) =>
+      Promise.all(
         keys
-          .filter(function (key) {
-            return key.startsWith("portfolio-manager-") && key !== CACHE_NAME;
-          })
-          .map(function (key) {
-            return caches.delete(key);
-          })
-      );
-    }).then(function () {
-      return self.clients.claim();
-    })
+          .filter(
+            (key) =>
+              key.startsWith("portfolio-manager-") &&
+              key !== CACHE_NAME
+          )
+          .map((key) => caches.delete(key))
+      )
+    ).then(() => self.clients.claim())
   );
 });
 
-self.addEventListener("fetch", function (event) {
-  if (event.request.method !== "GET") return;
-
-  event.respondWith(
-    fetch(event.request)
-      .then(function (response) {
-        if (
-          response &&
-          response.ok &&
-          new URL(event.request.url).origin === self.location.origin
-        ) {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then(function (cache) {
-            cache.put(event.request, copy);
-          });
-        }
-        return response;
-      })
-      .catch(function () {
-        return caches.match(event.request).then(function (cached) {
-          return cached || Response.error();
-        });
-      })
-  );
+// Service Worker는 네트워크 요청을 가로채지 않는다.
+// 따라서 GitHub Pages의 최신 index.html을 그대로 사용한다.
+self.addEventListener("fetch", () => {
+  // 의도적으로 아무것도 하지 않음
 });
