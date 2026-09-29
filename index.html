@@ -6414,69 +6414,61 @@
       throw new Error("Alpha Vantage API Key가 없습니다.");
     }
 
-    /*
-      Alpha Vantage 공식 문서상 TIME_SERIES_INTRADAY는
-      4:00~20:00 ET의 프리/정규/애프터 데이터를 제공하지만
-      realtime/15분 delayed 및 intraday 접근은 premium entitlement가 필요하다.
-      따라서 먼저 시도하고 권한이 없으면 24시간 동안 일봉 fallback을 사용한다.
-    */
-    const intradayDisabledUntil = getIntradayDisabledUntil();
+    // 무료 Alpha Vantage 키에서는 일봉 API만 사용합니다.
+    // Intraday를 먼저 호출하면 Premium 제한/호출 제한 때문에
+    // 정상적인 DAILY 요청까지 실패할 수 있으므로 여기서는 호출하지 않습니다.
+    const url =
+      "https://www.alphavantage.co/query" +
+      "?function=TIME_SERIES_DAILY" +
+      "&symbol=" + encodeURIComponent(ticker) +
+      "&outputsize=compact" +
+      "&apikey=" + encodeURIComponent(apiKey);
 
-    if (Date.now() >= intradayDisabledUntil) {
-      try {
-        const intradayUrl =
-          "https://www.alphavantage.co/query" +
-          "?function=TIME_SERIES_INTRADAY" +
-          "&symbol=" + encodeURIComponent(ticker) +
-          "&interval=5min" +
-          "&extended_hours=true" +
-          "&outputsize=compact" +
-          "&apikey=" + encodeURIComponent(apiKey);
+    const response = await fetch(url);
 
-        const response = await fetch(intradayUrl);
-
-        if (response.ok) {
-          const data = await response.json();
-
-          if (!data["Note"] && !data["Error Message"]) {
-            const series =
-              data["Time Series (5min)"] ||
-              data["Time Series (5min) (5min)"];
-
-            if (series) {
-              const timestamps = Object.keys(series).sort().reverse();
-
-              if (timestamps.length > 0) {
-                const latestTimestamp = timestamps[0];
-                const latestPrice = Number(series[latestTimestamp]["4. close"]);
-
-                if (Number.isFinite(latestPrice) && latestPrice > 0) {
-                  const market = classifyMarketPrice(latestTimestamp);
-
-                  return {
-                    price: latestPrice,
-                    date: latestTimestamp,
-                    status: market.status,
-                    label: market.label,
-                    source: "intraday"
-                  };
-                }
-              }
-            }
-          }
-
-          /* premium/entitlement 제한이면 불필요한 재시도를 줄인다. */
-          if (data["Note"] || data["Error Message"] || !data["Time Series (5min)"]) {
-            disableIntradayFor24Hours();
-          }
-        }
-      } catch (error) {
-        console.warn("Intraday 조회 실패 — 일봉 fallback:", ticker, error);
-        disableIntradayFor24Hours();
-      }
+    if (!response.ok) {
+      throw new Error(ticker + ": API 통신 오류 HTTP " + response.status);
     }
 
-    return getDailyClose(ticker, apiKey);
+    const data = await response.json();
+
+    if (data["Error Message"]) {
+      throw new Error(ticker + ": 티커 또는 API 요청을 확인하세요.");
+    }
+
+    if (data["Note"]) {
+      throw new Error(ticker + ": Alpha Vantage 요청 제한에 도달했습니다.");
+    }
+
+    if (data["Information"]) {
+      throw new Error(ticker + ": " + String(data["Information"]).slice(0, 180));
+    }
+
+    const series = data["Time Series (Daily)"];
+
+    if (!series) {
+      throw new Error(ticker + ": 일봉 시세 데이터가 없습니다.");
+    }
+
+    const dates = Object.keys(series).sort().reverse();
+    if (!dates.length) {
+      throw new Error(ticker + ": 거래일 데이터가 없습니다.");
+    }
+
+    const latestDate = dates[0];
+    const latestPrice = Number(series[latestDate]["4. close"]);
+
+    if (!Number.isFinite(latestPrice) || latestPrice <= 0) {
+      throw new Error(ticker + ": 종가를 확인할 수 없습니다.");
+    }
+
+    return {
+      price: latestPrice,
+      date: latestDate,
+      status: "CLOSE",
+      label: "최근 종가",
+      source: "daily"
+    };
   }
 
   /* =========================================================
@@ -6607,12 +6599,8 @@
         error
       ) {
 
-        console.error(
-          item.ticker,
-          error
-        );
-
-
+        console.error(item.ticker, error);
+        item.priceError = error && error.message ? error.message : "시세 조회 실패";
         failed++;
 
       }
@@ -6646,11 +6634,15 @@
       "status";
 
 
-    status.textContent =
-      "업데이트 완료 — " +
-      "성공 " + success + "개 / " +
-      "실패 " + failed + "개 / " +
-      new Date().toLocaleString("ko-KR");
+    const errorItems = holdings
+      .filter(item => item.priceError)
+      .slice(0, 3)
+      .map(item => item.ticker + " — " + item.priceError);
+
+    status.innerHTML =
+      "업데이트 완료 — 성공 " + success + "개 / 실패 " + failed + "개 / " +
+      new Date().toLocaleString("ko-KR") +
+      (errorItems.length ? "<br><span style=\"color:#f6ad55\">" + escapeHtml(errorItems.join(" / ")) + "</span>" : "");
 
     if (button) button.disabled = false;
 
