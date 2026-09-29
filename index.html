@@ -1329,7 +1329,7 @@
 
       <strong>추천 비중 엔진 v3</strong><br>
 
-      성장성 30% + 수익성 25% + 재무건전성·현금흐름 20% +
+      성장성 25% + 수익성 20% + 재무건전성 20% + FCF 10% +
       밸류에이션 15% + 위험도 10%를 이용해
       종목별 점수를 계산합니다.
 
@@ -2420,6 +2420,31 @@
         ? details.metrics.beta
         : null;
 
+    const freeCashFlow =
+      details.metrics
+        ? details.metrics.freeCashFlow
+        : null;
+
+    const fcfYield =
+      details.metrics
+        ? details.metrics.fcfYield
+        : null;
+
+    const netDebtToEbitda =
+      details.metrics
+        ? details.metrics.netDebtToEbitda
+        : null;
+
+    const interestCoverage =
+      details.metrics
+        ? details.metrics.interestCoverage
+        : null;
+
+    const dilutionGap =
+      details.metrics
+        ? details.metrics.dilutionGap
+        : null;
+
 
     return `
 
@@ -2469,7 +2494,7 @@
                 </div>
 
                 <div class="detail-score-value">
-                  ${neutral ? "중립" : growth.toFixed(1) + " / 30"}
+                  ${neutral ? "중립" : growth.toFixed(1) + " / 25"}
                 </div>
 
               </div>
@@ -2482,7 +2507,7 @@
                 </div>
 
                 <div class="detail-score-value">
-                  ${neutral ? "중립" : profitability.toFixed(1) + " / 25"}
+                  ${neutral ? "중립" : profitability.toFixed(1) + " / 20"}
                 </div>
 
               </div>
@@ -3059,15 +3084,19 @@
         <div class="mobile-detail-grid">
           <div class="mobile-detail-item">
             <span>성장성</span>
-            <strong>${Number(details.growth || 0).toFixed(1)} / 30</strong>
+            <strong>${Number(details.growth || 0).toFixed(1)} / 25</strong>
           </div>
           <div class="mobile-detail-item">
             <span>수익성</span>
-            <strong>${Number(details.profitability || 0).toFixed(1)} / 25</strong>
+            <strong>${Number(details.profitability || 0).toFixed(1)} / 20</strong>
           </div>
           <div class="mobile-detail-item">
             <span>건전성</span>
             <strong>${Number(details.financialStrength || 0).toFixed(1)} / 20</strong>
+          </div>
+          <div class="mobile-detail-item">
+            <span>FCF</span>
+            <strong>${Number(details.freeCashFlow || 0).toFixed(1)} / 10</strong>
           </div>
           <div class="mobile-detail-item">
             <span>밸류에이션</span>
@@ -3088,7 +3117,12 @@
           이익성장 ${metric(metrics.earningsGrowth, "%")} ·
           영업이익률 ${metric(metrics.operatingMargin, "%")} ·
           ROE ${metric(metrics.roe, "%")} ·
-          Beta ${metric(metrics.beta)}
+          Beta ${metric(metrics.beta)} ·
+          FCF ${metric(metrics.freeCashFlow)} ·
+          FCF Yield ${metric(metrics.fcfYield, "%")} ·
+          Net Debt/EBITDA ${metric(metrics.netDebtToEbitda)} ·
+          이자보상 ${metric(metrics.interestCoverage, "배")} ·
+          희석차이 ${metric(metrics.dilutionGap, "%")}
         </div>
       </div>
     `;
@@ -4707,1286 +4741,538 @@
 
 
   /* =========================================================
-     성장성 점수
-     30점
+     추천 점수 엔진 v2
+     총 100점
+
+     성장성       25
+     수익성       20
+     재무건전성   20
+     현금흐름     10
+     밸류에이션   15
+     위험도       10
   ========================================================= */
 
-  function growthScore(
-    data
-  ) {
+  function growthScore(data) {
 
-    const revenueGrowth =
-      safeNumber(
-        data[
-          "QuarterlyRevenueGrowthYOY"
-        ]
-      );
+    const revenueGrowth = safeNumber(data["QuarterlyRevenueGrowthYOY"]);
+    const earningsGrowth = safeNumber(data["QuarterlyEarningsGrowthYOY"]);
 
-
-    const earningsGrowth =
-      safeNumber(
-        data[
-          "QuarterlyEarningsGrowthYOY"
-        ]
-      );
-
-
-    const revenuePart =
-      revenueGrowth === null
-
-        ? 7.5
-
-        : clamp(
-            7.5 +
-            revenueGrowth *
-            0.25,
-            0,
-            15
-          );
-
-
-    const earningsPart =
-      earningsGrowth === null
-
-        ? 7.5
-
-        : clamp(
-            7.5 +
-            earningsGrowth *
-            0.25,
-            0,
-            15
-          );
-
+    function growthPart(value, maxPoints) {
+      if (value === null) return maxPoints / 2;
+      if (value >= 30) return maxPoints;
+      if (value >= 20) return maxPoints * 0.90;
+      if (value >= 10) return maxPoints * 0.75;
+      if (value >= 5) return maxPoints * 0.60;
+      if (value >= 0) return maxPoints * 0.50;
+      if (value >= -10) return maxPoints * 0.25;
+      return 0;
+    }
 
     return clamp(
-      revenuePart +
-      earningsPart,
-      0,
-      30
-    );
-
-  }
-
-
-  /* =========================================================
-     수익성 점수
-     25점
-  ========================================================= */
-
-  function profitabilityScore(
-    data
-  ) {
-
-    const operatingMargin =
-      safeNumber(
-        data[
-          "OperatingMarginTTM"
-        ]
-      );
-
-
-    const roe =
-      safeNumber(
-        data[
-          "ReturnOnEquityTTM"
-        ]
-      );
-
-
-    const operatingPart =
-      operatingMargin === null
-
-        ? 6.25
-
-        : clamp(
-            (
-              operatingMargin *
-              100 /
-              40
-            ) *
-            12.5,
-            0,
-            12.5
-          );
-
-
-    const roePart =
-      roe === null
-
-        ? 6.25
-
-        : clamp(
-            (
-              roe *
-              100 /
-              50
-            ) *
-            12.5,
-            0,
-            12.5
-          );
-
-
-    return clamp(
-      operatingPart +
-      roePart,
+      growthPart(revenueGrowth, 12.5) +
+      growthPart(earningsGrowth, 12.5),
       0,
       25
     );
-
   }
 
 
-  /* =========================================================
-     재무건전성 + 현금흐름 점수
-     20점
-  ========================================================= */
+  function profitabilityScore(data) {
 
-  function financialStrengthScore(
-    data
-  ) {
+    const operatingMargin = safeNumber(data["OperatingMarginTTM"]);
+    const roe = safeNumber(data["ReturnOnEquityTTM"]);
 
-    const debtToEquity =
-      firstNumber(
-        data,
-        [
-          "DebtToEquity",
-          "DebtEquityRatio"
-        ]
-      );
-
-
-    const currentRatio =
-      firstNumber(
-        data,
-        [
-          "CurrentRatio"
-        ]
-      );
-
-
-    const operatingCashflow =
-      firstNumber(
-        data,
-        [
-          "OperatingCashflow",
-          "OperatingCashFlow"
-        ]
-      );
-
-
-    const revenueTTM =
-      firstNumber(
-        data,
-        [
-          "RevenueTTM"
-        ]
-      );
-
-
-    let debtPart =
-      3.5;
-
-
-    let liquidityPart =
-      3;
-
-
-    let cashflowPart =
-      3.5;
-
-
-    if (
-      debtToEquity !== null &&
-      debtToEquity >= 0
-    ) {
-
-      if (
-        debtToEquity <= 30
-      ) {
-
-        debtPart = 7;
-
-      }
-
-      else if (
-        debtToEquity <= 60
-      ) {
-
-        debtPart = 6;
-
-      }
-
-      else if (
-        debtToEquity <= 100
-      ) {
-
-        debtPart = 5;
-
-      }
-
-      else if (
-        debtToEquity <= 150
-      ) {
-
-        debtPart = 4;
-
-      }
-
-      else if (
-        debtToEquity <= 250
-      ) {
-
-        debtPart = 2;
-
-      }
-
-      else {
-
-        debtPart = 0;
-
-      }
-
+    function marginPart(value) {
+      if (value === null) return 5;
+      if (value >= 30) return 10;
+      if (value >= 20) return 9;
+      if (value >= 15) return 8;
+      if (value >= 10) return 7;
+      if (value >= 5) return 5.5;
+      if (value >= 0) return 3;
+      return 0;
     }
 
-
-    if (
-      currentRatio !== null &&
-      currentRatio >= 0
-    ) {
-
-      if (
-        currentRatio >= 2.0
-      ) {
-
-        liquidityPart = 6;
-
-      }
-
-      else if (
-        currentRatio >= 1.5
-      ) {
-
-        liquidityPart = 5;
-
-      }
-
-      else if (
-        currentRatio >= 1.2
-      ) {
-
-        liquidityPart = 4;
-
-      }
-
-      else if (
-        currentRatio >= 1.0
-      ) {
-
-        liquidityPart = 3;
-
-      }
-
-      else if (
-        currentRatio >= 0.75
-      ) {
-
-        liquidityPart = 1.5;
-
-      }
-
-      else {
-
-        liquidityPart = 0;
-
-      }
-
+    function roePart(value) {
+      if (value === null) return 5;
+      if (value >= 30) return 10;
+      if (value >= 20) return 9;
+      if (value >= 15) return 8;
+      if (value >= 10) return 7;
+      if (value >= 5) return 5.5;
+      if (value >= 0) return 3;
+      return 0;
     }
 
+    return clamp(
+      marginPart(operatingMargin) + roePart(roe),
+      0,
+      20
+    );
+  }
+
+
+  /*
+     EV/EBITDA와 시가총액/EBITDA의 차이로
+     Net Debt / EBITDA를 근사합니다.
+     두 데이터가 모두 있을 때만 사용합니다.
+  */
+  function getNetDebtToEbitda(data) {
+
+    const evToEbitda = safeNumber(data["EVToEBITDA"]);
+    const marketCap = firstNumber(data, ["MarketCapitalization"]);
+    const ebitda = firstNumber(data, ["EBITDA"]);
+
+    if (
+      evToEbitda === null ||
+      marketCap === null ||
+      ebitda === null ||
+      ebitda <= 0
+    ) {
+      return null;
+    }
+
+    const marketCapToEbitda = marketCap / ebitda;
+    const value = evToEbitda - marketCapToEbitda;
+
+    return Number.isFinite(value) ? value : null;
+  }
+
+
+  function getInterestCoverage(data) {
+
+    const ebitda = firstNumber(data, ["EBITDA"]);
+    const interest = firstNumber(data, [
+      "InterestExpenseTTM",
+      "InterestExpense",
+      "InterestExpenseNonOperating"
+    ]);
+
+    if (
+      ebitda === null ||
+      interest === null ||
+      interest <= 0
+    ) {
+      return null;
+    }
+
+    return ebitda / interest;
+  }
+
+
+  function getDilutionGap(data) {
+
+    const shares = firstNumber(data, ["SharesOutstanding"]);
+    const diluted = firstNumber(data, [
+      "DilutedSharesOutstanding",
+      "DilutedShares"
+    ]);
+
+    if (
+      shares === null ||
+      diluted === null ||
+      shares <= 0
+    ) {
+      return null;
+    }
+
+    return ((diluted / shares) - 1) * 100;
+  }
+
+
+  function financialStrengthScore(data) {
+
+    const debtToEquity = firstNumber(data, [
+      "DebtToEquity",
+      "DebtEquityRatio"
+    ]);
+
+    const currentRatio = firstNumber(data, ["CurrentRatio"]);
+    const operatingCashflow = firstNumber(data, [
+      "OperatingCashflow",
+      "OperatingCashFlow"
+    ]);
+    const revenueTTM = firstNumber(data, ["RevenueTTM"]);
+    const netDebtToEbitda = getNetDebtToEbitda(data);
+    const interestCoverage = getInterestCoverage(data);
+
+    let debtPart = 3;
+    let liquidityPart = 3;
+    let cashflowPart = 3;
+    let leveragePart = 2;
+    let interestPart = 1;
+
+    if (debtToEquity !== null && debtToEquity >= 0) {
+      if (debtToEquity <= 30) debtPart = 6;
+      else if (debtToEquity <= 60) debtPart = 5;
+      else if (debtToEquity <= 100) debtPart = 4;
+      else if (debtToEquity <= 150) debtPart = 3;
+      else if (debtToEquity <= 250) debtPart = 1.5;
+      else debtPart = 0;
+    }
+
+    if (currentRatio !== null && currentRatio >= 0) {
+      if (currentRatio >= 2) liquidityPart = 4;
+      else if (currentRatio >= 1.5) liquidityPart = 3.5;
+      else if (currentRatio >= 1.2) liquidityPart = 3;
+      else if (currentRatio >= 1) liquidityPart = 2.5;
+      else if (currentRatio >= 0.75) liquidityPart = 1;
+      else liquidityPart = 0;
+    }
 
     if (
       operatingCashflow !== null &&
       revenueTTM !== null &&
       revenueTTM > 0
     ) {
-
-      const cashflowMargin =
-        (
-          operatingCashflow /
-          revenueTTM
-        ) *
-        100;
-
-
-      if (
-        cashflowMargin >= 20
-      ) {
-
-        cashflowPart = 7;
-
-      }
-
-      else if (
-        cashflowMargin >= 15
-      ) {
-
-        cashflowPart = 6;
-
-      }
-
-      else if (
-        cashflowMargin >= 10
-      ) {
-
-        cashflowPart = 5;
-
-      }
-
-      else if (
-        cashflowMargin >= 5
-      ) {
-
-        cashflowPart = 4;
-
-      }
-
-      else if (
-        cashflowMargin >= 0
-      ) {
-
-        cashflowPart = 2;
-
-      }
-
-      else {
-
-        cashflowPart = 0;
-
-      }
-
+      const margin = (operatingCashflow / revenueTTM) * 100;
+      if (margin >= 20) cashflowPart = 4;
+      else if (margin >= 15) cashflowPart = 3.5;
+      else if (margin >= 10) cashflowPart = 3;
+      else if (margin >= 5) cashflowPart = 2.5;
+      else if (margin >= 0) cashflowPart = 1;
+      else cashflowPart = 0;
     }
 
-    else if (
-      operatingCashflow !== null
-    ) {
-
-      cashflowPart = 3.5;
-
+    if (netDebtToEbitda !== null) {
+      if (netDebtToEbitda <= 0) leveragePart = 3;
+      else if (netDebtToEbitda <= 1) leveragePart = 2.8;
+      else if (netDebtToEbitda <= 2) leveragePart = 2.3;
+      else if (netDebtToEbitda <= 3) leveragePart = 1.5;
+      else if (netDebtToEbitda <= 4) leveragePart = 0.7;
+      else leveragePart = 0;
     }
 
+    if (interestCoverage !== null) {
+      if (interestCoverage >= 10) interestPart = 3;
+      else if (interestCoverage >= 6) interestPart = 2.5;
+      else if (interestCoverage >= 3) interestPart = 2;
+      else if (interestCoverage >= 1.5) interestPart = 1;
+      else interestPart = 0;
+    }
 
     return clamp(
-      debtPart +
-      liquidityPart +
-      cashflowPart,
+      debtPart + liquidityPart + cashflowPart + leveragePart + interestPart,
       0,
       20
     );
-
   }
 
-
-  /* =========================================================
-     밸류에이션 점수
-     15점
-  ========================================================= */
-
-  function valuationScore(
-    data
-  ) {
-
-    const peg =
-      safeNumber(
-        data[
-          "PEGRatio"
-        ]
-      );
-
-
-    const pe =
-      firstNumber(
-        data,
-        [
-          "PERatio",
-          "TrailingPE"
-        ]
-      );
-
-
-    const ps =
-      safeNumber(
-        data[
-          "PriceToSalesRatioTTM"
-        ]
-      );
-
-
-    const evEbitda =
-      safeNumber(
-        data[
-          "EVToEBITDA"
-        ]
-      );
-
-
-    let pegPart =
-      2;
-
-
-    let pePart =
-      2;
-
-
-    let psPart =
-      1.5;
-
-
-    let evPart =
-      2;
-
-
-    if (
-      peg !== null &&
-      peg > 0
-    ) {
-
-      if (
-        peg <= 0.8
-      ) {
-
-        pegPart = 4;
-
-      }
-
-      else if (
-        peg <= 1.2
-      ) {
-
-        pegPart = 3.5;
-
-      }
-
-      else if (
-        peg <= 1.8
-      ) {
-
-        pegPart = 3;
-
-      }
-
-      else if (
-        peg <= 2.5
-      ) {
-
-        pegPart = 2;
-
-      }
-
-      else if (
-        peg <= 4
-      ) {
-
-        pegPart = 1;
-
-      }
-
-      else {
-
-        pegPart = 0;
-
-      }
-
-    }
-
-
-    if (
-      pe !== null &&
-      pe > 0
-    ) {
-
-      if (
-        pe <= 15
-      ) {
-
-        pePart = 4;
-
-      }
-
-      else if (
-        pe <= 20
-      ) {
-
-        pePart = 3.5;
-
-      }
-
-      else if (
-        pe <= 30
-      ) {
-
-        pePart = 3;
-
-      }
-
-      else if (
-        pe <= 40
-      ) {
-
-        pePart = 2;
-
-      }
-
-      else if (
-        pe <= 60
-      ) {
-
-        pePart = 1;
-
-      }
-
-      else {
-
-        pePart = 0;
-
-      }
-
-    }
-
-
-    if (
-      ps !== null &&
-      ps > 0
-    ) {
-
-      if (
-        ps <= 2
-      ) {
-
-        psPart = 3;
-
-      }
-
-      else if (
-        ps <= 4
-      ) {
-
-        psPart = 2.5;
-
-      }
-
-      else if (
-        ps <= 8
-      ) {
-
-        psPart = 2;
-
-      }
-
-      else if (
-        ps <= 15
-      ) {
-
-        psPart = 1;
-
-      }
-
-      else {
-
-        psPart = 0;
-
-      }
-
-    }
-
-
-    if (
-      evEbitda !== null &&
-      evEbitda > 0
-    ) {
-
-      if (
-        evEbitda <= 10
-      ) {
-
-        evPart = 4;
-
-      }
-
-      else if (
-        evEbitda <= 15
-      ) {
-
-        evPart = 3.5;
-
-      }
-
-      else if (
-        evEbitda <= 20
-      ) {
-
-        evPart = 3;
-
-      }
-
-      else if (
-        evEbitda <= 30
-      ) {
-
-        evPart = 2;
-
-      }
-
-      else if (
-        evEbitda <= 50
-      ) {
-
-        evPart = 1;
-
-      }
-
-      else {
-
-        evPart = 0;
-
-      }
-
-    }
-
-
-    return clamp(
-      pegPart +
-      pePart +
-      psPart +
-      evPart,
-      0,
-      15
-    );
-
-  }
-
-
-  /* =========================================================
-     위험도 점수
-     10점
-  ========================================================= */
-
-  function riskScore(
-    data
-  ) {
-
-    const beta =
-      safeNumber(
-        data[
-          "Beta"
-        ]
-      );
-
-
-    if (
-      beta === null
-    ) {
-
-      return 5;
-
-    }
-
-
-    if (
-      beta <= 0.7
-    ) {
-
-      return 10;
-
-    }
-
-
-    if (
-      beta <= 1.0
-    ) {
-
-      return 9;
-
-    }
-
-
-    if (
-      beta <= 1.3
-    ) {
-
-      return 7;
-
-    }
-
-
-    if (
-      beta <= 1.7
-    ) {
-
-      return 5;
-
-    }
-
-
-    if (
-      beta <= 2.2
-    ) {
-
-      return 3;
-
-    }
-
-
-    return 1;
-
-  }
-
-
-  /* =========================================================
-     데이터 품질 계산
-  ========================================================= */
-
-  function calculateDataQuality(
-    data
-  ) {
-
-    const fields = [
-
-      [
-        "매출 성장률",
-        [
-          "QuarterlyRevenueGrowthYOY"
-        ]
-      ],
-
-      [
-        "이익 성장률",
-        [
-          "QuarterlyEarningsGrowthYOY"
-        ]
-      ],
-
-      [
-        "영업이익률",
-        [
-          "OperatingMarginTTM"
-        ]
-      ],
-
-      [
-        "ROE",
-        [
-          "ReturnOnEquityTTM"
-        ]
-      ],
-
-      [
-        "부채비율",
-        [
-          "DebtToEquity",
-          "DebtEquityRatio"
-        ]
-      ],
-
-      [
-        "유동비율",
-        [
-          "CurrentRatio"
-        ]
-      ],
-
-      [
-        "영업현금흐름",
-        [
-          "OperatingCashflow",
-          "OperatingCashFlow"
-        ]
-      ],
-
-      [
-        "FCF",
-        [
-          "FreeCashFlow",
-          "FreeCashFlowTTM",
-          "CapitalExpenditures"
-        ]
-      ],
-
-      [
-        "매출",
-        [
-          "RevenueTTM"
-        ]
-      ],
-
-      [
-        "PEG",
-        [
-          "PEGRatio"
-        ]
-      ],
-
-      [
-        "PER",
-        [
-          "PERatio",
-          "TrailingPE"
-        ]
-      ],
-
-      [
-        "PSR",
-        [
-          "PriceToSalesRatioTTM"
-        ]
-      ],
-
-      [
-        "EV/EBITDA",
-        [
-          "EVToEBITDA"
-        ]
-      ],
-
-      [
-        "Beta",
-        [
-          "Beta"
-        ]
-      ]
-
-    ];
-
-
-    let available = 0;
-
-
-    fields.forEach(
-      fieldInfo => {
-
-        const value =
-          firstNumber(
-            data,
-            fieldInfo[1]
-          );
-
-
-        if (
-          value !== null
-        ) {
-
-          available++;
-
-        }
-
-      }
-    );
-
-
-    return {
-
-      available:
-        available,
-
-      total:
-        fields.length,
-
-      percent:
-        (
-          available /
-          fields.length
-        ) *
-        100
-
-    };
-
-  }
-
-
-  /* =========================================================
-     FCF 보조지표
-  ========================================================= */
 
   function getFreeCashFlow(data) {
-    const direct = firstNumber(data, ["FreeCashFlow", "FreeCashFlowTTM"]);
+    const direct = firstNumber(data, [
+      "FreeCashFlow",
+      "FreeCashFlowTTM"
+    ]);
     if (direct !== null) return direct;
-    const ocf = firstNumber(data, ["OperatingCashflow", "OperatingCashFlow"]);
-    const capex = firstNumber(data, ["CapitalExpenditures", "CapitalExpenditure", "CapitalExpendituresTTM"]);
-    if (ocf !== null && capex !== null) return ocf - Math.abs(capex);
+
+    const ocf = firstNumber(data, [
+      "OperatingCashflow",
+      "OperatingCashFlow"
+    ]);
+    const capex = firstNumber(data, [
+      "CapitalExpenditures",
+      "CapitalExpenditure",
+      "CapitalExpendituresTTM"
+    ]);
+
+    if (ocf !== null && capex !== null) {
+      return ocf - Math.abs(capex);
+    }
+
     return null;
   }
+
 
   function freeCashFlowScore(data) {
     const fcf = getFreeCashFlow(data);
     const revenue = firstNumber(data, ["RevenueTTM"]);
+
     if (fcf === null) return 5;
     if (revenue === null || revenue <= 0) return fcf > 0 ? 8 : 2;
+
     const margin = (fcf / revenue) * 100;
+
     if (margin >= 20) return 10;
     if (margin >= 15) return 9;
     if (margin >= 10) return 8;
     if (margin >= 5) return 7;
     if (margin >= 0) return 5;
     if (margin >= -5) return 3;
-    return 1;
+    return 0;
   }
 
 
-  /* =========================================================
-     추천 점수 계산
-     총 100점
-
-     이번 단계에서 실제 세부 데이터도 함께 저장
-  ========================================================= */
-
-  function calculateRecommendationScore(
-    data,
-    assetType = "STOCK"
-  ) {
-
-    /*
-      ETF와 채권 ETF는 개별기업의 매출·ROE·PER 등을
-      주식과 동일한 방식으로 평가할 수 없으므로
-      50점 중립값을 사용합니다.
-    */
+  function fcfYieldScore(data) {
+    const fcf = getFreeCashFlow(data);
+    const marketCap = firstNumber(data, ["MarketCapitalization"]);
 
     if (
-      assetType === "ETF" ||
-      assetType === "BOND_ETF"
+      fcf === null ||
+      marketCap === null ||
+      marketCap <= 0
     ) {
-
-      return {
-
-        score:
-          50,
-
-        growth:
-          null,
-
-        profitability:
-          null,
-
-        financialStrength:
-          null,
-
-        valuation:
-          null,
-
-        risk:
-          null,
-
-        neutral:
-          true,
-
-        dataQuality: {
-
-          available:
-            0,
-
-          total:
-            0,
-
-          percent:
-            0
-
-        },
-
-        metrics: {
-
-          revenueGrowth:
-            null,
-
-          earningsGrowth:
-            null,
-
-          operatingMargin:
-            null,
-
-          roe:
-            null,
-
-          debtToEquity:
-            null,
-
-          currentRatio:
-            null,
-
-          cashflowMargin:
-            null,
-
-          peg:
-            null,
-
-          pe:
-            null,
-
-          ps:
-            null,
-
-          evEbitda:
-            null,
-
-          beta:
-            null
-
-        }
-
-      };
-
+      return 1.5;
     }
 
+    const yieldPercent = (fcf / marketCap) * 100;
 
-    const growth =
-      growthScore(
-        data
-      );
-
-
-    const profitability =
-      profitabilityScore(
-        data
-      );
-
-
-    const financialStrength =
-      financialStrengthScore(
-        data
-      );
+    if (yieldPercent >= 10) return 3;
+    if (yieldPercent >= 7) return 2.8;
+    if (yieldPercent >= 5) return 2.5;
+    if (yieldPercent >= 3) return 2.2;
+    if (yieldPercent >= 1) return 1.7;
+    if (yieldPercent >= 0) return 1;
+    return 0;
+  }
 
 
-    const valuation =
-      valuationScore(
-        data
-      );
+  function valuationScore(data) {
 
+    const peg = safeNumber(data["PEGRatio"]);
+    const pe = firstNumber(data, ["PERatio", "TrailingPE"]);
+    const ps = safeNumber(data["PriceToSalesRatioTTM"]);
+    const evEbitda = safeNumber(data["EVToEBITDA"]);
 
-    const risk =
-      riskScore(
-        data
-      );
+    let pegPart = 2;
+    let pePart = 2;
+    let psPart = 1.5;
+    let evPart = 2;
 
-
-    const freeCashFlow = freeCashFlowScore(data);
-
-    const total =
-      (growth * (25 / 30)) +
-      (profitability * (20 / 25)) +
-      financialStrength +
-      valuation +
-      risk +
-      freeCashFlow;
-
-
-    const quality =
-      calculateDataQuality(
-        data
-      );
-
-
-    const revenueGrowth =
-      safeNumber(
-        data[
-          "QuarterlyRevenueGrowthYOY"
-        ]
-      );
-
-
-    const earningsGrowth =
-      safeNumber(
-        data[
-          "QuarterlyEarningsGrowthYOY"
-        ]
-      );
-
-
-    const operatingMargin =
-      safeNumber(
-        data[
-          "OperatingMarginTTM"
-        ]
-      );
-
-
-    const roe =
-      safeNumber(
-        data[
-          "ReturnOnEquityTTM"
-        ]
-      );
-
-
-    const debtToEquity =
-      firstNumber(
-        data,
-        [
-          "DebtToEquity",
-          "DebtEquityRatio"
-        ]
-      );
-
-
-    const currentRatio =
-      firstNumber(
-        data,
-        [
-          "CurrentRatio"
-        ]
-      );
-
-
-    const operatingCashflow =
-      firstNumber(
-        data,
-        [
-          "OperatingCashflow",
-          "OperatingCashFlow"
-        ]
-      );
-
-
-    const revenueTTM =
-      firstNumber(
-        data,
-        [
-          "RevenueTTM"
-        ]
-      );
-
-
-    let cashflowMargin =
-      null;
-
-
-    if (
-      operatingCashflow !== null &&
-      revenueTTM !== null &&
-      revenueTTM > 0
-    ) {
-
-      cashflowMargin =
-        (
-          operatingCashflow /
-          revenueTTM
-        ) *
-        100;
-
+    if (peg !== null && peg > 0) {
+      if (peg <= 0.8) pegPart = 4;
+      else if (peg <= 1.2) pegPart = 3.5;
+      else if (peg <= 1.8) pegPart = 3;
+      else if (peg <= 2.5) pegPart = 2;
+      else if (peg <= 4) pegPart = 1;
+      else pegPart = 0;
     }
 
+    if (pe !== null && pe > 0) {
+      if (pe <= 15) pePart = 3;
+      else if (pe <= 20) pePart = 2.7;
+      else if (pe <= 30) pePart = 2.3;
+      else if (pe <= 40) pePart = 1.6;
+      else if (pe <= 60) pePart = 0.8;
+      else pePart = 0;
+    }
 
-    const peg =
-      safeNumber(
-        data[
-          "PEGRatio"
-        ]
-      );
+    if (ps !== null && ps > 0) {
+      if (ps <= 2) psPart = 2;
+      else if (ps <= 4) psPart = 1.7;
+      else if (ps <= 8) psPart = 1.4;
+      else if (ps <= 15) psPart = 0.7;
+      else psPart = 0;
+    }
+
+    if (evEbitda !== null && evEbitda > 0) {
+      if (evEbitda <= 10) evPart = 3;
+      else if (evEbitda <= 15) evPart = 2.7;
+      else if (evEbitda <= 20) evPart = 2.3;
+      else if (evEbitda <= 30) evPart = 1.6;
+      else if (evEbitda <= 50) evPart = 0.8;
+      else evPart = 0;
+    }
+
+    return clamp(
+      pegPart + pePart + psPart + evPart + fcfYieldScore(data),
+      0,
+      15
+    );
+  }
 
 
-    const pe =
-      firstNumber(
-        data,
-        [
-          "PERatio",
-          "TrailingPE"
-        ]
-      );
+  function riskScore(data) {
+
+    const beta = safeNumber(data["Beta"]);
+    const netDebtToEbitda = getNetDebtToEbitda(data);
+    const interestCoverage = getInterestCoverage(data);
+    const dilutionGap = getDilutionGap(data);
+
+    let betaPart = 2;
+    let leveragePart = 2;
+    let interestPart = 2;
+    let dilutionPart = 2;
+
+    if (beta !== null) {
+      if (beta <= 0.7) betaPart = 4;
+      else if (beta <= 1) betaPart = 3.5;
+      else if (beta <= 1.3) betaPart = 3;
+      else if (beta <= 1.7) betaPart = 2;
+      else if (beta <= 2.2) betaPart = 1;
+      else betaPart = 0;
+    }
+
+    if (netDebtToEbitda !== null) {
+      if (netDebtToEbitda <= 0) leveragePart = 2.5;
+      else if (netDebtToEbitda <= 1) leveragePart = 2.2;
+      else if (netDebtToEbitda <= 2) leveragePart = 1.8;
+      else if (netDebtToEbitda <= 3) leveragePart = 1.2;
+      else if (netDebtToEbitda <= 4) leveragePart = 0.5;
+      else leveragePart = 0;
+    }
+
+    if (interestCoverage !== null) {
+      if (interestCoverage >= 10) interestPart = 2.5;
+      else if (interestCoverage >= 6) interestPart = 2.2;
+      else if (interestCoverage >= 3) interestPart = 1.8;
+      else if (interestCoverage >= 1.5) interestPart = 0.8;
+      else interestPart = 0;
+    }
+
+    if (dilutionGap !== null) {
+      if (dilutionGap <= 2) dilutionPart = 1;
+      else if (dilutionGap <= 5) dilutionPart = 0.7;
+      else if (dilutionGap <= 10) dilutionPart = 0.4;
+      else dilutionPart = 0;
+    }
+
+    return clamp(
+      betaPart + leveragePart + interestPart + dilutionPart,
+      0,
+      10
+    );
+  }
 
 
-    const ps =
-      safeNumber(
-        data[
-          "PriceToSalesRatioTTM"
-        ]
-      );
+  function calculateDataQuality(data) {
 
+    const fields = [
+      ["매출 성장률", ["QuarterlyRevenueGrowthYOY"]],
+      ["이익 성장률", ["QuarterlyEarningsGrowthYOY"]],
+      ["영업이익률", ["OperatingMarginTTM"]],
+      ["ROE", ["ReturnOnEquityTTM"]],
+      ["부채비율", ["DebtToEquity", "DebtEquityRatio"]],
+      ["유동비율", ["CurrentRatio"]],
+      ["영업현금흐름", ["OperatingCashflow", "OperatingCashFlow"]],
+      ["FCF", ["FreeCashFlow", "FreeCashFlowTTM", "CapitalExpenditures"]],
+      ["매출", ["RevenueTTM"]],
+      ["시가총액", ["MarketCapitalization"]],
+      ["EBITDA", ["EBITDA"]],
+      ["PEG", ["PEGRatio"]],
+      ["PER", ["PERatio", "TrailingPE"]],
+      ["PSR", ["PriceToSalesRatioTTM"]],
+      ["EV/EBITDA", ["EVToEBITDA"]],
+      ["Beta", ["Beta"]],
+      ["이자보상배율", ["InterestExpenseTTM", "InterestExpense", "InterestExpenseNonOperating"]],
+      ["희석주식수", ["DilutedSharesOutstanding", "DilutedShares"]]
+    ];
 
-    const evEbitda =
-      safeNumber(
-        data[
-          "EVToEBITDA"
-        ]
-      );
+    let available = 0;
 
+    fields.forEach(fieldInfo => {
+      if (firstNumber(data, fieldInfo[1]) !== null) available++;
+    });
 
-    const beta =
-      safeNumber(
-        data[
-          "Beta"
-        ]
-      );
-
+    const total = fields.length;
+    const percent = total > 0 ? (available / total) * 100 : 0;
 
     return {
-
-      score:
-        clamp(
-          total,
-          0,
-          100
-        ),
-
-      growth:
-        growth,
-
-      profitability:
-        profitability,
-
-      financialStrength:
-        financialStrength,
-
-      valuation:
-        valuation,
-
-      risk:
-        risk,
-
-      freeCashFlow:
-        freeCashFlow,
-
-      dataQuality:
-        quality,
-
-      metrics: {
-
-        revenueGrowth:
-          revenueGrowth,
-
-        earningsGrowth:
-          earningsGrowth,
-
-        operatingMargin:
-          operatingMargin,
-
-        roe:
-          roe,
-
-        debtToEquity:
-          debtToEquity,
-
-        currentRatio:
-          currentRatio,
-
-        cashflowMargin:
-          cashflowMargin,
-
-        peg:
-          peg,
-
-        pe:
-          pe,
-
-        ps:
-          ps,
-
-        evEbitda:
-          evEbitda,
-
-        beta:
-          beta
-
-      }
-
+      available,
+      total,
+      percent
     };
+  }
 
+
+  function calculateRecommendationScore(data, assetType = "STOCK") {
+
+    if (assetType === "ETF" || assetType === "BOND_ETF") {
+      return {
+        score: 50,
+        growth: null,
+        profitability: null,
+        financialStrength: null,
+        freeCashFlow: null,
+        valuation: null,
+        risk: null,
+        neutral: true,
+        dataQuality: { available: 0, total: 0, percent: 0 },
+        metrics: {}
+      };
+    }
+
+    const growth = growthScore(data);
+    const profitability = profitabilityScore(data);
+    const financialStrength = financialStrengthScore(data);
+    const valuation = valuationScore(data);
+    const risk = riskScore(data);
+    const freeCashFlow = freeCashFlowScore(data);
+    const quality = calculateDataQuality(data);
+
+    const rawTotal = clamp(
+      growth +
+      profitability +
+      financialStrength +
+      freeCashFlow +
+      valuation +
+      risk,
+      0,
+      100
+    );
+
+    // 데이터가 부족한 종목이 중립값 덕분에 과대평가되는 것을 완화합니다.
+    // 신뢰도 100%에서는 원점수 그대로, 50%에서는 원점수의 75% 수준입니다.
+    const confidenceFactor =
+      0.5 + (0.5 * (quality.percent / 100));
+
+    const confidenceAdjustedScore = clamp(
+      rawTotal * confidenceFactor,
+      0,
+      100
+    );
+
+    const revenueGrowth = safeNumber(data["QuarterlyRevenueGrowthYOY"]);
+    const earningsGrowth = safeNumber(data["QuarterlyEarningsGrowthYOY"]);
+    const operatingMargin = safeNumber(data["OperatingMarginTTM"]);
+    const roe = safeNumber(data["ReturnOnEquityTTM"]);
+    const debtToEquity = firstNumber(data, ["DebtToEquity", "DebtEquityRatio"]);
+    const currentRatio = firstNumber(data, ["CurrentRatio"]);
+    const operatingCashflow = firstNumber(data, ["OperatingCashflow", "OperatingCashFlow"]);
+    const revenueTTM = firstNumber(data, ["RevenueTTM"]);
+    const cashflowMargin =
+      operatingCashflow !== null && revenueTTM !== null && revenueTTM > 0
+        ? (operatingCashflow / revenueTTM) * 100
+        : null;
+
+    return {
+      score: confidenceAdjustedScore,
+      rawScore: rawTotal,
+      confidenceFactor,
+      growth,
+      profitability,
+      financialStrength,
+      freeCashFlow,
+      valuation,
+      risk,
+      neutral: false,
+      dataQuality: quality,
+      metrics: {
+        revenueGrowth,
+        earningsGrowth,
+        operatingMargin,
+        roe,
+        debtToEquity,
+        currentRatio,
+        cashflowMargin,
+        freeCashFlow: getFreeCashFlow(data),
+        fcfYield: (() => {
+          const fcf = getFreeCashFlow(data);
+          const marketCap = firstNumber(data, ["MarketCapitalization"]);
+          return fcf !== null && marketCap !== null && marketCap > 0
+            ? (fcf / marketCap) * 100
+            : null;
+        })(),
+        netDebtToEbitda: getNetDebtToEbitda(data),
+        interestCoverage: getInterestCoverage(data),
+        dilutionGap: getDilutionGap(data),
+        peg: safeNumber(data["PEGRatio"]),
+        pe: firstNumber(data, ["PERatio", "TrailingPE"]),
+        ps: safeNumber(data["PriceToSalesRatioTTM"]),
+        evEbitda: safeNumber(data["EVToEBITDA"]),
+        beta: safeNumber(data["Beta"])
+      }
+    };
   }
 
 
@@ -6540,6 +5826,8 @@
               result.financialStrength.toFixed(1) +
               " / 밸류 " +
               result.valuation.toFixed(1) +
+              " / FCF " +
+              result.freeCashFlow.toFixed(1) +
               " / 위험 " +
               result.risk.toFixed(1) +
               " / 데이터 " +
@@ -6649,6 +5937,12 @@
               score:
                 result.details.score,
 
+              rawScore:
+                result.details.rawScore,
+
+              confidenceFactor:
+                result.details.confidenceFactor,
+
               neutral:
                 result.details.neutral || false,
 
@@ -6708,7 +6002,7 @@
         apiCalls +
         "회" +
         "<br>" +
-        "성장성·수익성·재무건전성·FCF·밸류에이션·위험도를 종합했습니다." +
+        "성장성·수익성·재무건전성·FCF·밸류에이션·시장/재무위험을 종합했습니다. 데이터 부족분은 신뢰도에 반영했습니다." +
         "<br><br>" +
 
         '<button ' +
