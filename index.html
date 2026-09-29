@@ -1153,11 +1153,11 @@
       <input
         id="apiKey"
         type="password"
-        placeholder="Alpha Vantage API Key"
+        placeholder="Alpha Vantage API Key (재무/추천용)"
       >
 
       <button onclick="saveApiKey()">
-        API Key 저장
+        Alpha Vantage 저장
       </button>
 
     </div>
@@ -1166,7 +1166,28 @@
       id="apiStatus"
       class="status"
     >
-      API Key가 저장되지 않았습니다.
+      Alpha Vantage API Key가 저장되지 않았습니다.
+    </div>
+
+    <div class="api-row" style="margin-top:10px;">
+
+      <input
+        id="twelveDataKey"
+        type="password"
+        placeholder="Twelve Data API Key (시세용)"
+      >
+
+      <button onclick="saveTwelveDataKey()">
+        Twelve Data 저장
+      </button>
+
+    </div>
+
+    <div
+      id="twelveDataStatus"
+      class="status"
+    >
+      Twelve Data API Key가 저장되지 않았습니다.
     </div>
 
     <div class="notice">
@@ -1174,8 +1195,8 @@
       API Key는 코드에 포함하지 않고 현재 사용하는
       브라우저의 LocalStorage에 저장합니다.
 
-      무료 API의 요청 제한을 고려하여
-      시세와 재무 데이터는 캐시합니다. 시세는 최근 거래일 종가 기준입니다.
+      시세는 Twelve Data 배치 API를 사용해 여러 종목을 한 번에 조회하고,
+      재무 데이터는 Alpha Vantage를 사용합니다. 두 API Key는 브라우저 LocalStorage에 저장됩니다.
 
     </div>
 
@@ -1564,6 +1585,9 @@
   const API_KEY_STORAGE =
     "portfolio_manager_alpha_key_v1";
 
+  const TWELVE_DATA_KEY_STORAGE =
+    "portfolio_manager_twelve_data_key_v1";
+
   const LAST_UPDATED_STORAGE =
     "portfolio_manager_last_updated_v1";
 
@@ -1839,7 +1863,25 @@
       document.getElementById(
         "apiStatus"
       ).textContent =
-        "API Key가 저장되어 있습니다.";
+        "Alpha Vantage API Key가 저장되어 있습니다.";
+
+    }
+
+    const twelveKey =
+      localStorage.getItem(
+        TWELVE_DATA_KEY_STORAGE
+      );
+
+    if (twelveKey) {
+
+      document.getElementById(
+        "twelveDataKey"
+      ).value = twelveKey;
+
+      document.getElementById(
+        "twelveDataStatus"
+      ).textContent =
+        "Twelve Data API Key가 저장되어 있습니다.";
 
     }
 
@@ -1950,6 +1992,31 @@
       "apiStatus"
     ).textContent =
       "API Key가 저장되었습니다.";
+
+  }
+
+  function saveTwelveDataKey() {
+
+    const key =
+      document
+        .getElementById("twelveDataKey")
+        .value
+        .trim();
+
+    if (!key) {
+      alert("Twelve Data API Key를 입력하세요.");
+      return;
+    }
+
+    localStorage.setItem(
+      TWELVE_DATA_KEY_STORAGE,
+      key
+    );
+
+    document.getElementById(
+      "twelveDataStatus"
+    ).textContent =
+      "Twelve Data API Key가 저장되었습니다.";
 
   }
 
@@ -6316,142 +6383,91 @@
 
   /* =========================================================
      시세 조회
-     - 가능하면 Alpha Vantage intraday(확장시간 포함)를 우선 시도
-     - 실시간/15분 지연/Intraday 권한이 없는 무료 키는 자동으로 일봉 종가로 fallback
+     - Twelve Data 배치 API 사용
+     - 최대 120종목을 한 번의 HTTP 요청으로 조회 가능
+     - 30종목 포트폴리오도 1회 요청으로 처리
+     - Alpha Vantage는 재무/추천 데이터에만 사용
   ========================================================= */
 
-  const INTRADAY_DISABLED_KEY = "portfolio_manager_intraday_disabled_until_v1";
-
-  function getIntradayDisabledUntil() {
-    return Number(localStorage.getItem(INTRADAY_DISABLED_KEY) || 0);
-  }
-
-  function disableIntradayFor24Hours() {
-    localStorage.setItem(
-      INTRADAY_DISABLED_KEY,
-      String(Date.now() + 24 * 60 * 60 * 1000)
-    );
-  }
-
-  function classifyMarketPrice(timestamp) {
-    if (!timestamp) {
-      return { status: "CLOSE", label: "최근 종가" };
-    }
-
-    const match = String(timestamp).match(/ (\d{2}):(\d{2}):/);
-    if (!match) {
-      return { status: "CLOSE", label: "최근 종가" };
-    }
-
-    const minutes = Number(match[1]) * 60 + Number(match[2]);
-
-    if (minutes >= 240 && minutes < 570) {
-      return { status: "PRE", label: "프리마켓" };
-    }
-
-    if (minutes >= 570 && minutes < 960) {
-      return { status: "REGULAR", label: "정규장" };
-    }
-
-    if (minutes >= 960 && minutes <= 1200) {
-      return { status: "AFTER", label: "애프터마켓" };
-    }
-
-    return { status: "CLOSE", label: "최근 종가" };
-  }
-
-  async function getPrice(ticker) {
+  async function getBatchPrices(tickers) {
 
     const apiKey =
-      localStorage.getItem(API_KEY_STORAGE);
+      localStorage.getItem(TWELVE_DATA_KEY_STORAGE);
 
     if (!apiKey) {
-      throw new Error("Alpha Vantage API Key가 없습니다.");
-    }
-
-    const url =
-      "https://www.alphavantage.co/query" +
-      "?function=TIME_SERIES_DAILY" +
-      "&symbol=" + encodeURIComponent(ticker) +
-      "&outputsize=compact" +
-      "&apikey=" + encodeURIComponent(apiKey);
-
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      throw new Error(ticker + ": API 통신 오류 HTTP " + response.status);
-    }
-
-    const data = await response.json();
-
-    if (data["Note"] || data["Information"]) {
-      const message = String(
-        data["Note"] || data["Information"] || ""
+      const error = new Error(
+        "Twelve Data API Key가 없습니다. 데이터 설정에서 시세용 Key를 저장하세요."
       );
+      error.code = "NO_TWELVE_KEY";
+      throw error;
+    }
 
-      const lower = message.toLowerCase();
+    const uniqueTickers = [...new Set(
+      tickers
+        .map(t => String(t || "").trim().toUpperCase())
+        .filter(t => /^[A-Z0-9.\-]{1,10}$/.test(t))
+    )];
 
-      if (
-        lower.includes("rate limit") ||
-        lower.includes("25 requests") ||
-        lower.includes("standard api rate limit") ||
-        lower.includes("premium") && lower.includes("subscribe")
-      ) {
-        const error = new Error(
-          "Alpha Vantage 무료 API 일일 요청 한도(25회)에 도달했습니다."
+    if (!uniqueTickers.length) return {};
+
+    const results = {};
+
+    for (let i = 0; i < uniqueTickers.length; i += 100) {
+
+      const chunk = uniqueTickers.slice(i, i + 100);
+
+      const url =
+        "https://api.twelvedata.com/price" +
+        "?symbol=" + encodeURIComponent(chunk.join(",")) +
+        "&apikey=" + encodeURIComponent(apiKey);
+
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        throw new Error(
+          "Twelve Data API 통신 오류 HTTP " + response.status
         );
-        error.code = "RATE_LIMIT";
-        throw error;
       }
 
-      throw new Error(
-        ticker + ": Alpha Vantage 응답 오류가 발생했습니다."
-      );
+      const data = await response.json();
+
+      if (data && data.code && data.message) {
+        throw new Error(
+          "Twelve Data: " + String(data.message)
+        );
+      }
+
+      Object.keys(data || {}).forEach(symbol => {
+        const row = data[symbol];
+        if (!row || typeof row !== "object") return;
+
+        const price = Number(row.price);
+        if (Number.isFinite(price) && price > 0) {
+          results[String(symbol).toUpperCase()] = {
+            price,
+            date: new Date().toISOString(),
+            status: "LIVE",
+            label: "현재가",
+            source: "twelvedata"
+          };
+        }
+      });
+
+      if (uniqueTickers.length === 1 && data && data.price) {
+        const price = Number(data.price);
+        if (Number.isFinite(price) && price > 0) {
+          results[uniqueTickers[0]] = {
+            price,
+            date: new Date().toISOString(),
+            status: "LIVE",
+            label: "현재가",
+            source: "twelvedata"
+          };
+        }
+      }
     }
 
-    if (data["Error Message"]) {
-      throw new Error(
-        ticker + ": 티커 또는 API 요청을 확인하세요."
-      );
-    }
-
-    const series = data["Time Series (Daily)"];
-
-    if (!series) {
-      throw new Error(
-        ticker + ": 일봉 시세 데이터가 없습니다."
-      );
-    }
-
-    const dates = Object.keys(series).sort().reverse();
-
-    if (!dates.length) {
-      throw new Error(
-        ticker + ": 거래일 데이터가 없습니다."
-      );
-    }
-
-    const latestDate = dates[0];
-    const latestPrice = Number(
-      series[latestDate]["4. close"]
-    );
-
-    if (
-      !Number.isFinite(latestPrice) ||
-      latestPrice <= 0
-    ) {
-      throw new Error(
-        ticker + ": 종가를 확인할 수 없습니다."
-      );
-    }
-
-    return {
-      price: latestPrice,
-      date: latestDate,
-      status: "CLOSE",
-      label: "최근 종가",
-      source: "daily"
-    };
+    return results;
   }
 
   /* =========================================================
@@ -6465,23 +6481,18 @@
       return;
     }
 
-    const apiKey =
-      localStorage.getItem(API_KEY_STORAGE);
-
-    if (!apiKey) {
-      alert("먼저 Alpha Vantage API Key를 저장하세요.");
+    if (!localStorage.getItem(TWELVE_DATA_KEY_STORAGE)) {
+      alert("데이터 설정에서 Twelve Data API Key를 먼저 저장하세요.");
       return;
     }
 
-    const status =
-      document.getElementById("updateStatus");
-    const button =
-      document.getElementById("refreshPricesButton");
+    const status = document.getElementById("updateStatus");
+    const button = document.getElementById("refreshPricesButton");
 
     if (button) button.disabled = true;
 
     status.className = "status loading";
-    status.textContent = "시세를 확인하는 중입니다...";
+    status.textContent = "시세를 한 번에 조회하는 중입니다...";
 
     const activeHoldings = holdings.filter(item =>
       item &&
@@ -6491,108 +6502,73 @@
       Number(item.avgPrice) > 0
     );
 
+    const tickers = [...new Set(
+      activeHoldings.map(item => item.ticker.toUpperCase())
+    )];
+
     let success = 0;
     let failed = 0;
-    let skipped = 0;
-    let rateLimited = false;
 
-    for (const item of activeHoldings) {
+    try {
 
-      item.priceError = null;
+      const results = await getBatchPrices(tickers);
 
-      if (rateLimited) {
-        skipped++;
-        continue;
-      }
+      activeHoldings.forEach(item => {
 
-      try {
+        const ticker = item.ticker.toUpperCase();
+        const result = results[ticker];
 
-        const cached =
-          priceCache[item.ticker];
+        item.priceError = null;
 
-        const cacheAge =
-          cached && cached.fetchedAt
-            ? Date.now() - new Date(cached.fetchedAt).getTime()
-            : Infinity;
-
-        // 일봉 종가는 같은 거래일에는 반복 호출하지 않습니다.
-        const cacheLimit =
-          6 * 60 * 60 * 1000;
-
-        if (
-          cached &&
-          Number.isFinite(cacheAge) &&
-          cacheAge >= 0 &&
-          cacheAge < cacheLimit
-        ) {
-          item.currentPrice = cached.price;
-          item.updatedAt = cached.updatedAt || cached.fetchedAt;
-          item.priceSourceDate =
-            cached.sourceDate || cached.date || null;
-          item.priceStatus = cached.status || "CLOSE";
-          item.priceLabel = cached.label || "최근 종가";
-          item.priceSource = cached.source || "daily";
-          success++;
-          continue;
+        if (!result) {
+          item.priceError = ticker + ": 시세 데이터를 받지 못했습니다.";
+          failed++;
+          return;
         }
-
-        const result =
-          await getPrice(item.ticker);
 
         item.currentPrice = result.price;
         item.updatedAt = new Date().toISOString();
         item.priceSourceDate = result.date;
-        item.priceStatus = result.status || "CLOSE";
-        item.priceLabel = result.label || "최근 종가";
-        item.priceSource = result.source || "daily";
+        item.priceStatus = result.status;
+        item.priceLabel = result.label;
+        item.priceSource = result.source;
 
-        priceCache[item.ticker] = {
+        priceCache[ticker] = {
           price: result.price,
           fetchedAt: item.updatedAt,
           updatedAt: item.updatedAt,
           sourceDate: result.date,
           date: result.date,
-          status: result.status || "CLOSE",
-          label: result.label || "최근 종가",
-          source: result.source || "daily"
+          status: result.status,
+          label: result.label,
+          source: result.source
         };
 
         success++;
+      });
 
-        // 무료 API 호출 간격 확보
-        await sleep(13000);
+    } catch (error) {
 
-      } catch (error) {
+      console.error(error);
 
-        console.error(item.ticker, error);
-
+      activeHoldings.forEach(item => {
         item.priceError =
           error && error.message
             ? error.message
             : "시세 조회 실패";
+      });
 
-        failed++;
-
-        if (error && error.code === "RATE_LIMIT") {
-          rateLimited = true;
-        }
-      }
+      failed = activeHoldings.length;
     }
 
     saveHoldings();
 
     if (success > 0) {
       lastUpdatedAt = new Date().toISOString();
-      localStorage.setItem(
-        LAST_UPDATED_STORAGE,
-        lastUpdatedAt
-      );
+      localStorage.setItem(LAST_UPDATED_STORAGE, lastUpdatedAt);
     }
 
-    localStorage.setItem(
-      PRICE_CACHE_KEY,
-      JSON.stringify(priceCache)
-    );
+    localStorage.setItem(PRICE_CACHE_KEY, JSON.stringify(priceCache));
 
     renderLastUpdated();
     renderPortfolio();
@@ -6602,49 +6578,21 @@
     const errorItems = holdings
       .filter(item => item.priceError)
       .slice(0, 3)
-      .map(item =>
-        item.ticker + " — " + item.priceError
-      );
+      .map(item => item.ticker + " — " + item.priceError);
 
     let message =
-      "업데이트 완료 — 성공 " +
+      "시세 업데이트 완료 — 성공 " +
       success +
       "개 / 실패 " +
       failed +
-      "개";
+      "개 / API 요청 " +
+      (tickers.length ? "1회" : "0회");
 
-    if (skipped > 0) {
-      message +=
-        " / 한도 초과로 중단 " +
-        skipped +
-        "개";
+    if (errorItems.length) {
+      message += "\n" + errorItems.join("\n");
     }
 
-    if (activeHoldings.length !== holdings.length) {
-      message +=
-        " / 유효 보유종목 " +
-        activeHoldings.length +
-        "개";
-    }
-
-    message +=
-      " / " +
-      new Date().toLocaleString("ko-KR");
-
-    if (rateLimited) {
-      message +=
-        '<br><span style="color:#f6ad55">' +
-        "Alpha Vantage 무료 API 일일 한도에 도달해 추가 호출을 중단했습니다. " +
-        "한도가 초기화된 뒤 다시 업데이트하세요." +
-        "</span>";
-    } else if (errorItems.length) {
-      message +=
-        '<br><span style="color:#f6ad55">' +
-        escapeHtml(errorItems.join(" / ")) +
-        "</span>";
-    }
-
-    status.innerHTML = message;
+    status.textContent = message;
 
     if (button) button.disabled = false;
   }
