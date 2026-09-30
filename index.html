@@ -70,53 +70,6 @@
       margin-bottom: 14px;
     }
 
-    .portfolio-header-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .portfolio-sort-control {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      font-size: 11px;
-      color: #8b96a8;
-      font-weight: 600;
-    }
-
-    .portfolio-sort-control select {
-      min-width: 116px;
-      padding: 7px 28px 7px 9px;
-      border: 1px solid #2b3545;
-      border-radius: 8px;
-      background: #111720;
-      color: #e8edf4;
-      font-size: 11px;
-      outline: none;
-    }
-
-    .portfolio-sort-control select:focus {
-      border-color: #4b6b91;
-    }
-
-    @media (max-width: 700px) {
-      .portfolio-header-row {
-        align-items: flex-start;
-      }
-
-      .portfolio-sort-control {
-        width: 100%;
-        justify-content: flex-end;
-      }
-
-      .portfolio-sort-control select {
-        min-width: 130px;
-      }
-    }
-
     .summary-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -1256,18 +1209,8 @@
 
   <div class="card">
 
-    <div class="card-title portfolio-header-row">
-      <span>📈 Portfolio</span>
-
-      <label class="portfolio-sort-control">
-        <span>정렬</span>
-        <select id="portfolioSort" onchange="setPortfolioSort(this.value)">
-          <option value="current">현재 비중순</option>
-          <option value="target">목표 비중순</option>
-          <option value="recommended">추천 비중순</option>
-          <option value="ticker">티커순</option>
-        </select>
-      </label>
+    <div class="card-title">
+      📈 Portfolio
     </div>
 
     <div class="summary-grid">
@@ -1501,6 +1444,29 @@
       </div>
     </div>
 
+    <div class="recommend-mode-panel" style="margin:12px 0;padding:12px;border:1px solid rgba(255,255,255,.10);border-radius:12px;">
+      <div style="font-weight:700;margin-bottom:8px;">추천비중 방식</div>
+      <select id="recommendMode" onchange="saveRecommendationMode();toggleCustomRecommendationSettings();" style="width:100%;padding:10px;border-radius:8px;background:inherit;color:inherit;">
+        <option value="AUTO">① 자동 분석형 — 현재 엔진</option>
+        <option value="CUSTOM">② 투자자 맞춤형 — 내가 정한 가중치</option>
+      </select>
+      <div id="customRecommendationSettings" style="display:none;margin-top:10px;">
+        <div style="font-size:12px;opacity:.75;margin-bottom:8px;">재무 데이터는 동일하게 사용하되, 아래 가중치로 추천점수를 다시 계산합니다. 합계는 자동으로 100%로 맞춥니다.</div>
+        <div class="form-grid" style="grid-template-columns:repeat(2,minmax(0,1fr));">
+          <label>성장성 <input id="customGrowthWeight" type="number" min="0" max="100" step="1" value="30"></label>
+          <label>수익성 <input id="customProfitabilityWeight" type="number" min="0" max="100" step="1" value="25"></label>
+          <label>재무건전성 <input id="customFinancialWeight" type="number" min="0" max="100" step="1" value="20"></label>
+          <label>FCF <input id="customFcfWeight" type="number" min="0" max="100" step="1" value="10"></label>
+          <label>밸류에이션 <input id="customValuationWeight" type="number" min="0" max="100" step="1" value="10"></label>
+          <label>위험도 <input id="customRiskWeight" type="number" min="0" max="100" step="1" value="5"></label>
+          <label>종목 최대비중 % <input id="customMaxWeight" type="number" min="1" max="100" step="1" value="30"></label>
+          <label>현금·미배분 % <input id="customCashReserve" type="number" min="0" max="90" step="1" value="0"></label>
+        </div>
+        <div id="customWeightTotal" style="margin-top:8px;font-size:12px;font-weight:700;"></div>
+        <button class="button-secondary button-small" onclick="resetCustomRecommendationSettings()" style="margin-top:8px;">맞춤 가중치 기본값</button>
+      </div>
+    </div>
+
     <div class="dashboard-note">
       최근 거래일 종가를 기준으로 현재 비중과 목표 비중을 계산합니다.
       시세가 없는 종목은 리밸런싱 계산에서 제외합니다.
@@ -1653,9 +1619,6 @@
 
   const FUNDAMENTAL_CACHE_KEY =
     "portfolio_manager_fundamental_cache_v1";
-
-  const SORT_ORDER_STORAGE =
-    "portfolio_manager_sort_order_v1";
 
 
   /* =========================================================
@@ -3461,92 +3424,6 @@
 
 
   /* =========================================================
-     포트폴리오 정렬
-     - 화면 표시 순서만 변경하며 holdings 데이터 자체의 순서는 유지
-  ========================================================= */
-
-  function getPortfolioSortOrder() {
-    return localStorage.getItem(SORT_ORDER_STORAGE) || "current";
-  }
-
-  function setPortfolioSort(order) {
-    const allowed = ["current", "target", "recommended", "ticker"];
-    const next = allowed.includes(order) ? order : "current";
-
-    localStorage.setItem(SORT_ORDER_STORAGE, next);
-
-    const select = document.getElementById("portfolioSort");
-    if (select) {
-      select.value = next;
-    }
-
-    renderPortfolio();
-  }
-
-  function getSortedHoldings(portfolio) {
-    const list = [...holdings];
-    const order = getPortfolioSortOrder();
-
-    const currentWeight = (item) => {
-      const market = getHoldingMarketData(item);
-      if (!market.hasPrice || !portfolio || portfolio.totalValue <= 0) {
-        return -Infinity;
-      }
-      return (market.value / portfolio.totalValue) * 100;
-    };
-
-    list.sort((a, b) => {
-      if (order === "ticker") {
-        return String(a.ticker || "").localeCompare(
-          String(b.ticker || ""),
-          "en",
-          { sensitivity: "base" }
-        );
-      }
-
-      if (order === "target") {
-        const diff =
-          (Number(b.targetWeight) || 0) -
-          (Number(a.targetWeight) || 0);
-
-        if (Math.abs(diff) > 0.0001) return diff;
-      }
-
-      if (order === "recommended") {
-        const aWeight =
-          a.recommendedWeight === null ||
-          a.recommendedWeight === undefined
-            ? -Infinity
-            : Number(a.recommendedWeight);
-
-        const bWeight =
-          b.recommendedWeight === null ||
-          b.recommendedWeight === undefined
-            ? -Infinity
-            : Number(b.recommendedWeight);
-
-        const diff = bWeight - aWeight;
-
-        if (Math.abs(diff) > 0.0001) return diff;
-      }
-
-      if (order === "current") {
-        const diff = currentWeight(b) - currentWeight(a);
-        if (Math.abs(diff) > 0.0001) return diff;
-      }
-
-      // 값이 같은 경우에는 티커순으로 고정해 화면이 흔들리지 않게 합니다.
-      return String(a.ticker || "").localeCompare(
-        String(b.ticker || ""),
-        "en",
-        { sensitivity: "base" }
-      );
-    });
-
-    return list;
-  }
-
-  /* =========================================================
      모바일 포트폴리오 출력
   ========================================================= */
 
@@ -3571,11 +3448,8 @@
     const portfolio =
       calculatePortfolio();
 
-    const sortedHoldings =
-      getSortedHoldings(portfolio);
-
     container.innerHTML =
-      sortedHoldings.map(item => {
+      holdings.map(item => {
 
         const market =
           getHoldingMarketData(item);
@@ -3828,13 +3702,6 @@
 
   function renderPortfolio() {
 
-    const sortSelect =
-      document.getElementById("portfolioSort");
-
-    if (sortSelect) {
-      sortSelect.value = getPortfolioSortOrder();
-    }
-
     const body =
       document.getElementById(
         "portfolioBody"
@@ -3878,11 +3745,8 @@
       calculatePortfolio();
 
 
-    const sortedHoldings =
-      getSortedHoldings(portfolio);
-
     body.innerHTML =
-      sortedHoldings.map(
+      holdings.map(
         item => {
 
           const market =
@@ -6127,6 +5991,153 @@
 
 
   /* =========================================================
+     추천 방식: 자동 / 투자자 맞춤형
+  ========================================================= */
+
+  const RECOMMEND_MODE_KEY = "portfolio_manager_recommend_mode_v1";
+  const CUSTOM_RECOMMEND_KEY = "portfolio_manager_custom_recommend_v1";
+
+  const DEFAULT_CUSTOM_RECOMMEND = {
+    growth: 30,
+    profitability: 25,
+    financialStrength: 20,
+    freeCashFlow: 10,
+    valuation: 10,
+    risk: 5,
+    maxWeight: 30,
+    cashReserve: 0
+  };
+
+  function getRecommendationMode() {
+    return localStorage.getItem(RECOMMEND_MODE_KEY) || "AUTO";
+  }
+
+  function getCustomRecommendationSettings() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(CUSTOM_RECOMMEND_KEY) || "null");
+      return { ...DEFAULT_CUSTOM_RECOMMEND, ...(saved || {}) };
+    } catch (e) {
+      return { ...DEFAULT_CUSTOM_RECOMMEND };
+    }
+  }
+
+  function saveRecommendationMode() {
+    const el = document.getElementById("recommendMode");
+    if (el) localStorage.setItem(RECOMMEND_MODE_KEY, el.value);
+    updateCustomWeightTotal();
+  }
+
+  function saveCustomRecommendationSettings() {
+    const ids = [
+      ["customGrowthWeight", "growth"],
+      ["customProfitabilityWeight", "profitability"],
+      ["customFinancialWeight", "financialStrength"],
+      ["customFcfWeight", "freeCashFlow"],
+      ["customValuationWeight", "valuation"],
+      ["customRiskWeight", "risk"],
+      ["customMaxWeight", "maxWeight"],
+      ["customCashReserve", "cashReserve"]
+    ];
+    const settings = getCustomRecommendationSettings();
+    ids.forEach(([id, key]) => {
+      const el = document.getElementById(id);
+      if (el) settings[key] = Math.max(0, Number(el.value) || 0);
+    });
+    settings.maxWeight = Math.min(100, Math.max(1, settings.maxWeight));
+    settings.cashReserve = Math.min(90, Math.max(0, settings.cashReserve));
+    localStorage.setItem(CUSTOM_RECOMMEND_KEY, JSON.stringify(settings));
+    return settings;
+  }
+
+  function updateCustomWeightTotal() {
+    const el = document.getElementById("customWeightTotal");
+    if (!el) return;
+    const s = getCustomRecommendationSettings();
+    const ids = [["customGrowthWeight","growth"],["customProfitabilityWeight","profitability"],["customFinancialWeight","financialStrength"],["customFcfWeight","freeCashFlow"],["customValuationWeight","valuation"],["customRiskWeight","risk"]];
+    ids.forEach(([id,key]) => { const input = document.getElementById(id); if (input) s[key] = Number(input.value) || 0; });
+    const total = s.growth + s.profitability + s.financialStrength + s.freeCashFlow + s.valuation + s.risk;
+    el.textContent = total === 100
+      ? "가중치 합계 100% ✓"
+      : `가중치 합계 ${total}% — 100%가 되도록 맞춰주세요.`;
+    el.style.opacity = total === 100 ? "1" : ".85";
+  }
+
+  function toggleCustomRecommendationSettings() {
+    const mode = getRecommendationMode();
+    const box = document.getElementById("customRecommendationSettings");
+    if (box) box.style.display = mode === "CUSTOM" ? "block" : "none";
+    if (mode === "CUSTOM") loadCustomRecommendationSettings();
+  }
+
+  function loadCustomRecommendationSettings() {
+    const s = getCustomRecommendationSettings();
+    const map = {
+      growth:"customGrowthWeight", profitability:"customProfitabilityWeight", financialStrength:"customFinancialWeight",
+      freeCashFlow:"customFcfWeight", valuation:"customValuationWeight", risk:"customRiskWeight",
+      maxWeight:"customMaxWeight", cashReserve:"customCashReserve"
+    };
+    Object.entries(map).forEach(([key,id]) => {
+      const el = document.getElementById(id);
+      if (el) el.value = s[key];
+    });
+    updateCustomWeightTotal();
+  }
+
+  function resetCustomRecommendationSettings() {
+    localStorage.setItem(CUSTOM_RECOMMEND_KEY, JSON.stringify(DEFAULT_CUSTOM_RECOMMEND));
+    loadCustomRecommendationSettings();
+  }
+
+  function calculateCustomScore(details, settings) {
+    if (details.neutral) return 50;
+    const total = settings.growth + settings.profitability + settings.financialStrength + settings.freeCashFlow + settings.valuation + settings.risk;
+    if (Math.abs(total - 100) > 0.001) return null;
+    return (
+      (details.growth / 25) * settings.growth +
+      (details.profitability / 20) * settings.profitability +
+      (details.financialStrength / 20) * settings.financialStrength +
+      (details.freeCashFlow / 10) * settings.freeCashFlow +
+      (details.valuation / 15) * settings.valuation +
+      (details.risk / 10) * settings.risk
+    );
+  }
+
+  function convertCustomScoresToWeights(scoredItems, settings) {
+    const investable = 100 - settings.cashReserve;
+    if (!scoredItems.length) return;
+    const totalScore = scoredItems.reduce((sum, item) => sum + item.score, 0);
+    if (totalScore <= 0) {
+      const equal = investable / scoredItems.length;
+      scoredItems.forEach(item => item.weight = Math.min(equal, settings.maxWeight));
+      return;
+    }
+    scoredItems.forEach(item => {
+      item.weight = (item.score / totalScore) * investable;
+    });
+    let excess = 0;
+    scoredItems.forEach(item => {
+      if (item.weight > settings.maxWeight) {
+        excess += item.weight - settings.maxWeight;
+        item.weight = settings.maxWeight;
+      }
+    });
+    for (let pass = 0; pass < 20 && excess > 0.0001; pass++) {
+      const available = scoredItems.filter(item => item.weight < settings.maxWeight - 0.0001);
+      if (!available.length) break;
+      const availableScore = available.reduce((sum, item) => sum + item.score, 0);
+      let distributed = 0;
+      available.forEach(item => {
+        const add = availableScore > 0 ? excess * (item.score / availableScore) : excess / available.length;
+        const actual = Math.min(settings.maxWeight - item.weight, add);
+        item.weight += actual;
+        distributed += actual;
+      });
+      excess -= distributed;
+      if (distributed <= 0.0001) break;
+    }
+  }
+
+  /* =========================================================
      추천 비중 계산
   ========================================================= */
 
@@ -6174,6 +6185,18 @@
     status.textContent =
       "재무 데이터를 확인하는 중입니다...";
 
+
+    const mode = getRecommendationMode();
+    const customSettings = mode === "CUSTOM" ? saveCustomRecommendationSettings() : null;
+    if (mode === "CUSTOM") {
+      const customTotal = customSettings.growth + customSettings.profitability + customSettings.financialStrength + customSettings.freeCashFlow + customSettings.valuation + customSettings.risk;
+      if (customTotal !== 100) {
+        button.disabled = false;
+        status.className = "status error";
+        status.textContent = `맞춤 가중치 합계가 ${customTotal}%입니다. 100%로 맞춰주세요.`;
+        return;
+      }
+    }
 
     const scoredItems = [];
 
@@ -6294,6 +6317,13 @@
           const quality =
             result.dataQuality;
 
+          if (mode === "CUSTOM") {
+            const customScore = calculateCustomScore(result, customSettings);
+            if (customScore === null) throw new Error("맞춤 가중치 합계가 100%가 아닙니다.");
+            result.rawScore = customScore;
+            result.score = clamp(customScore * (result.confidenceFactor || 1), 0, 100);
+          }
+
 
           let reason =
             "";
@@ -6333,6 +6363,8 @@
 
           }
 
+
+          reason = (mode === "CUSTOM" ? "투자자 맞춤형 / " : "자동 분석형 / ") + reason;
 
           item.assetType =
             assetType;
@@ -6405,9 +6437,11 @@
       }
 
 
-      convertScoresToWeights(
-        scoredItems
-      );
+      if (mode === "CUSTOM") {
+        convertCustomScoresToWeights(scoredItems, customSettings);
+      } else {
+        convertScoresToWeights(scoredItems);
+      }
 
 
       scoredItems.forEach(
@@ -6541,147 +6575,15 @@
 
 
   /* =========================================================
-     시세 조회 — Twelve Data Basic 안정화 버전
-
-     핵심 규칙
-     - /price 배치 API 사용
-     - Basic: 분당 8 API credits
-     - 한 배치 최대 8종목
-     - 8종목마다 약 61초 대기
-     - 한 배치가 실패해도 이전 배치 성공분은 유지
-     - 429가 발생하면 즉시 중단하고 이미 성공한 가격만 반영
-     - 진행상황을 화면에 표시
-     - 최근 5분 이내 캐시는 재사용하여 불필요한 호출 방지
+     시세 조회
+     - Twelve Data 배치 API 사용
+     - Basic 무료 플랜의 분당 8 credits 제한에 맞춰 8종목씩 배치
+     - 30종목 포트폴리오는 4회 요청으로 처리
+     - 배치 사이 61초 대기하여 429 방지
+     - Alpha Vantage는 재무/추천 데이터에만 사용
   ========================================================= */
 
-  const TWELVE_BATCH_SIZE = 8;
-  const TWELVE_CACHE_TTL_MS = 5 * 60 * 1000;
-  const TWELVE_BATCH_WAIT_MS = 61000;
-
-  function getFreshCachedPrice(ticker) {
-
-    const cached = priceCache[ticker];
-
-    if (!cached) return null;
-
-    const fetchedAt = Date.parse(cached.fetchedAt || cached.updatedAt || "");
-
-    if (!Number.isFinite(fetchedAt)) return null;
-
-    if (Date.now() - fetchedAt > TWELVE_CACHE_TTL_MS) return null;
-
-    const price = Number(cached.price);
-
-    if (!Number.isFinite(price) || price <= 0) return null;
-
-    return {
-      price,
-      date: cached.sourceDate || cached.date || new Date(fetchedAt).toISOString(),
-      status: cached.status || "LATEST",
-      label: cached.label || "최근가",
-      source: cached.source || "twelvedata-cache"
-    };
-  }
-
-  async function requestTwelveBatch(chunk, apiKey) {
-
-    const url =
-      "https://api.twelvedata.com/price" +
-      "?symbol=" + encodeURIComponent(chunk.join(",")) +
-      "&apikey=" + encodeURIComponent(apiKey);
-
-    const response = await fetch(url, {
-      method: "GET",
-      cache: "no-store"
-    });
-
-    const text = await response.text();
-    let data = {};
-
-    try {
-      data = text ? JSON.parse(text) : {};
-    } catch (error) {
-      throw new Error("Twelve Data 응답을 해석할 수 없습니다.");
-    }
-
-    if (response.status === 429) {
-      const error = new Error(
-        "Twelve Data 분당 API 한도(8 credits)를 초과했습니다. 잠시 후 다시 시도하세요."
-      );
-      error.code = "RATE_LIMIT";
-      throw error;
-    }
-
-    if (!response.ok) {
-      const message =
-        data && data.message
-          ? String(data.message)
-          : "HTTP " + response.status;
-      const error = new Error("Twelve Data API 오류: " + message);
-      error.code = "HTTP_ERROR";
-      throw error;
-    }
-
-    if (data && data.status === "error") {
-      const error = new Error(
-        "Twelve Data: " + String(data.message || "요청 실패")
-      );
-      error.code = data.code || "API_ERROR";
-      throw error;
-    }
-
-    return data;
-  }
-
-  function extractBatchPrices(data, chunk) {
-
-    const results = {};
-
-    // 다중 심볼 응답: { AAPL: { price: "..." }, MSFT: { price: "..." } }
-    chunk.forEach(ticker => {
-
-      const row = data && data[ticker];
-
-      if (!row || typeof row !== "object") return;
-
-      if (row.status === "error") return;
-
-      const price = Number(row.price);
-
-      if (Number.isFinite(price) && price > 0) {
-        results[ticker] = {
-          price,
-          date: new Date().toISOString(),
-          status: "LIVE",
-          label: "현재가",
-          source: "twelvedata"
-        };
-      }
-    });
-
-    // 단일 심볼 응답 방어 코드
-    if (
-      chunk.length === 1 &&
-      data &&
-      data.price
-    ) {
-      const price = Number(data.price);
-
-      if (Number.isFinite(price) && price > 0) {
-        results[chunk[0]] = {
-          price,
-          date: new Date().toISOString(),
-          status: "LIVE",
-          label: "현재가",
-          source: "twelvedata"
-        };
-      }
-    }
-
-    return results;
-  }
-
-  async function getBatchPrices(tickers, progressCallback) {
+  async function getBatchPrices(tickers) {
 
     const apiKey =
       localStorage.getItem(TWELVE_DATA_KEY_STORAGE);
@@ -6700,129 +6602,74 @@
         .filter(t => /^[A-Z0-9.\-]{1,10}$/.test(t))
     )];
 
+    if (!uniqueTickers.length) return {};
+
     const results = {};
-    const errors = [];
-    let apiRequests = 0;
-    let processed = 0;
 
-    // 먼저 최근 캐시를 사용한다.
-    const uncachedTickers = [];
+    const BATCH_SIZE = 8;
 
-    uniqueTickers.forEach(ticker => {
-      const cached = getFreshCachedPrice(ticker);
+    for (let i = 0; i < uniqueTickers.length; i += BATCH_SIZE) {
 
-      if (cached) {
-        results[ticker] = cached;
-        processed++;
-      } else {
-        uncachedTickers.push(ticker);
-      }
-    });
+      const chunk = uniqueTickers.slice(i, i + BATCH_SIZE);
 
-    if (progressCallback) {
-      progressCallback(processed, uniqueTickers.length, apiRequests, "캐시 확인");
-    }
+      const url =
+        "https://api.twelvedata.com/price" +
+        "?symbol=" + encodeURIComponent(chunk.join(",")) +
+        "&apikey=" + encodeURIComponent(apiKey);
 
-    for (
-      let i = 0;
-      i < uncachedTickers.length;
-      i += TWELVE_BATCH_SIZE
-    ) {
+      const response = await fetch(url);
 
-      const chunk = uncachedTickers.slice(
-        i,
-        i + TWELVE_BATCH_SIZE
-      );
-
-      if (progressCallback) {
-        progressCallback(
-          processed,
-          uniqueTickers.length,
-          apiRequests,
-          "조회 중: " + chunk.join(", ")
+      if (!response.ok) {
+        throw new Error(
+          "Twelve Data API 통신 오류 HTTP " + response.status
         );
       }
 
-      try {
+      const data = await response.json();
 
-        const data = await requestTwelveBatch(chunk, apiKey);
-        apiRequests++;
-
-        const batchResults = extractBatchPrices(data, chunk);
-
-        chunk.forEach(ticker => {
-
-          if (batchResults[ticker]) {
-            results[ticker] = batchResults[ticker];
-            processed++;
-          } else {
-            errors.push(
-              ticker + " — 시세 데이터 없음"
-            );
-          }
-        });
-
-        if (progressCallback) {
-          progressCallback(
-            processed,
-            uniqueTickers.length,
-            apiRequests,
-            "완료: " + chunk.join(", ")
-          );
-        }
-
-      } catch (error) {
-
-        apiRequests++;
-
-        const message =
-          error && error.message
-            ? error.message
-            : "시세 조회 실패";
-
-        chunk.forEach(ticker => {
-          errors.push(ticker + " — " + message);
-        });
-
-        // 429는 추가 호출을 하면 더 악화되므로 즉시 중단한다.
-        if (error && error.code === "RATE_LIMIT") {
-          break;
-        }
-
-        // 인증/권한/서비스 오류도 반복 호출하지 않는다.
-        break;
+      if (data && data.code && data.message) {
+        throw new Error(
+          "Twelve Data: " + String(data.message)
+        );
       }
 
-      const hasMore =
-        i + TWELVE_BATCH_SIZE < uncachedTickers.length;
+      Object.keys(data || {}).forEach(symbol => {
+        const row = data[symbol];
+        if (!row || typeof row !== "object") return;
 
-      if (hasMore) {
-
-        let remaining = TWELVE_BATCH_WAIT_MS / 1000;
-
-        while (remaining > 0) {
-
-          if (progressCallback) {
-            progressCallback(
-              processed,
-              uniqueTickers.length,
-              apiRequests,
-              "다음 API 한도 대기 중 — " + remaining + "초"
-            );
-          }
-
-          const step = Math.min(5, remaining);
-          await sleep(step * 1000);
-          remaining -= step;
+        const price = Number(row.price);
+        if (Number.isFinite(price) && price > 0) {
+          results[String(symbol).toUpperCase()] = {
+            price,
+            date: new Date().toISOString(),
+            status: "LIVE",
+            label: "현재가",
+            source: "twelvedata"
+          };
         }
+      });
+
+      if (uniqueTickers.length === 1 && data && data.price) {
+        const price = Number(data.price);
+        if (Number.isFinite(price) && price > 0) {
+          results[uniqueTickers[0]] = {
+            price,
+            date: new Date().toISOString(),
+            status: "LIVE",
+            label: "현재가",
+            source: "twelvedata"
+          };
+        }
+      }
+
+      // Twelve Data Basic 무료 플랜은 분당 8 API credits이므로
+      // 8종목 배치마다 다음 분까지 기다립니다.
+      if (i + BATCH_SIZE < uniqueTickers.length) {
+        await sleep(61000);
       }
     }
 
-    return {
-      results,
-      errors,
-      apiRequests
-    };
+    return results;
   }
 
   /* =========================================================
@@ -6847,7 +6694,7 @@
     if (button) button.disabled = true;
 
     status.className = "status loading";
-    status.textContent = "시세 업데이트 준비 중...";
+    status.textContent = "시세를 8종목씩 조회하는 중입니다...";
 
     const activeHoldings = holdings.filter(item =>
       item &&
@@ -6863,28 +6710,10 @@
 
     let success = 0;
     let failed = 0;
-    let apiRequests = 0;
-    let errorItems = [];
 
     try {
 
-      const payload = await getBatchPrices(
-        tickers,
-        (processed, total, requests, message) => {
-          status.textContent =
-            "시세 업데이트 — " +
-            processed + "/" +
-            total +
-            "종목 · API " +
-            requests +
-            "회 · " +
-            message;
-        }
-      );
-
-      const results = payload.results;
-      apiRequests = payload.apiRequests;
-      errorItems = payload.errors;
+      const results = await getBatchPrices(tickers);
 
       activeHoldings.forEach(item => {
 
@@ -6894,9 +6723,7 @@
         item.priceError = null;
 
         if (!result) {
-          item.priceError =
-            errorItems.find(e => e.indexOf(ticker + " —") === 0) ||
-            (ticker + " — 시세 데이터를 받지 못했습니다.");
+          item.priceError = ticker + ": 시세 데이터를 받지 못했습니다.";
           failed++;
           return;
         }
@@ -6943,20 +6770,17 @@
       localStorage.setItem(LAST_UPDATED_STORAGE, lastUpdatedAt);
     }
 
-    localStorage.setItem(
-      PRICE_CACHE_KEY,
-      JSON.stringify(priceCache)
-    );
+    localStorage.setItem(PRICE_CACHE_KEY, JSON.stringify(priceCache));
 
     renderLastUpdated();
     renderPortfolio();
 
     status.className = "status";
 
-    const visibleErrors = activeHoldings
+    const errorItems = holdings
       .filter(item => item.priceError)
       .slice(0, 3)
-      .map(item => item.ticker + " — " + item.priceError.replace(item.ticker + " — ", ""));
+      .map(item => item.ticker + " — " + item.priceError);
 
     let message =
       "시세 업데이트 완료 — 성공 " +
@@ -6964,11 +6788,10 @@
       "개 / 실패 " +
       failed +
       "개 / API 요청 " +
-      apiRequests +
-      "회";
+      (tickers.length ? "1회" : "0회");
 
-    if (visibleErrors.length) {
-      message += "\n" + visibleErrors.join("\n");
+    if (errorItems.length) {
+      message += "\n" + errorItems.join("\n");
     }
 
     status.textContent = message;
@@ -7188,6 +7011,19 @@
   init();
 
 
+
+  function initRecommendationModeUI() {
+    const el = document.getElementById("recommendMode");
+    if (el) el.value = getRecommendationMode();
+    loadCustomRecommendationSettings();
+    toggleCustomRecommendationSettings();
+    ["customGrowthWeight","customProfitabilityWeight","customFinancialWeight","customFcfWeight","customValuationWeight","customRiskWeight","customMaxWeight","customCashReserve"].forEach(id => {
+      const input = document.getElementById(id);
+      if (input) input.addEventListener("input", () => { saveCustomRecommendationSettings(); updateCustomWeightTotal(); });
+    });
+  }
+
+  setTimeout(initRecommendationModeUI, 0);
 </script>
 
 </body>
