@@ -6382,15 +6382,147 @@
 
 
   /* =========================================================
-     시세 조회
-     - Twelve Data 배치 API 사용
-     - Basic 무료 플랜의 분당 8 credits 제한에 맞춰 8종목씩 배치
-     - 30종목 포트폴리오는 4회 요청으로 처리
-     - 배치 사이 61초 대기하여 429 방지
-     - Alpha Vantage는 재무/추천 데이터에만 사용
+     시세 조회 — Twelve Data Basic 안정화 버전
+
+     핵심 규칙
+     - /price 배치 API 사용
+     - Basic: 분당 8 API credits
+     - 한 배치 최대 8종목
+     - 8종목마다 약 61초 대기
+     - 한 배치가 실패해도 이전 배치 성공분은 유지
+     - 429가 발생하면 즉시 중단하고 이미 성공한 가격만 반영
+     - 진행상황을 화면에 표시
+     - 최근 5분 이내 캐시는 재사용하여 불필요한 호출 방지
   ========================================================= */
 
-  async function getBatchPrices(tickers) {
+  const TWELVE_BATCH_SIZE = 8;
+  const TWELVE_CACHE_TTL_MS = 5 * 60 * 1000;
+  const TWELVE_BATCH_WAIT_MS = 61000;
+
+  function getFreshCachedPrice(ticker) {
+
+    const cached = priceCache[ticker];
+
+    if (!cached) return null;
+
+    const fetchedAt = Date.parse(cached.fetchedAt || cached.updatedAt || "");
+
+    if (!Number.isFinite(fetchedAt)) return null;
+
+    if (Date.now() - fetchedAt > TWELVE_CACHE_TTL_MS) return null;
+
+    const price = Number(cached.price);
+
+    if (!Number.isFinite(price) || price <= 0) return null;
+
+    return {
+      price,
+      date: cached.sourceDate || cached.date || new Date(fetchedAt).toISOString(),
+      status: cached.status || "LATEST",
+      label: cached.label || "최근가",
+      source: cached.source || "twelvedata-cache"
+    };
+  }
+
+  async function requestTwelveBatch(chunk, apiKey) {
+
+    const url =
+      "https://api.twelvedata.com/price" +
+      "?symbol=" + encodeURIComponent(chunk.join(",")) +
+      "&apikey=" + encodeURIComponent(apiKey);
+
+    const response = await fetch(url, {
+      method: "GET",
+      cache: "no-store"
+    });
+
+    const text = await response.text();
+    let data = {};
+
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch (error) {
+      throw new Error("Twelve Data 응답을 해석할 수 없습니다.");
+    }
+
+    if (response.status === 429) {
+      const error = new Error(
+        "Twelve Data 분당 API 한도(8 credits)를 초과했습니다. 잠시 후 다시 시도하세요."
+      );
+      error.code = "RATE_LIMIT";
+      throw error;
+    }
+
+    if (!response.ok) {
+      const message =
+        data && data.message
+          ? String(data.message)
+          : "HTTP " + response.status;
+      const error = new Error("Twelve Data API 오류: " + message);
+      error.code = "HTTP_ERROR";
+      throw error;
+    }
+
+    if (data && data.status === "error") {
+      const error = new Error(
+        "Twelve Data: " + String(data.message || "요청 실패")
+      );
+      error.code = data.code || "API_ERROR";
+      throw error;
+    }
+
+    return data;
+  }
+
+  function extractBatchPrices(data, chunk) {
+
+    const results = {};
+
+    // 다중 심볼 응답: { AAPL: { price: "..." }, MSFT: { price: "..." } }
+    chunk.forEach(ticker => {
+
+      const row = data && data[ticker];
+
+      if (!row || typeof row !== "object") return;
+
+      if (row.status === "error") return;
+
+      const price = Number(row.price);
+
+      if (Number.isFinite(price) && price > 0) {
+        results[ticker] = {
+          price,
+          date: new Date().toISOString(),
+          status: "LIVE",
+          label: "현재가",
+          source: "twelvedata"
+        };
+      }
+    });
+
+    // 단일 심볼 응답 방어 코드
+    if (
+      chunk.length === 1 &&
+      data &&
+      data.price
+    ) {
+      const price = Number(data.price);
+
+      if (Number.isFinite(price) && price > 0) {
+        results[chunk[0]] = {
+          price,
+          date: new Date().toISOString(),
+          status: "LIVE",
+          label: "현재가",
+          source: "twelvedata"
+        };
+      }
+    }
+
+    return results;
+  }
+
+  async function getBatchPrices(tickers, progressCallback) {
 
     const apiKey =
       localStorage.getItem(TWELVE_DATA_KEY_STORAGE);
@@ -6409,74 +6541,129 @@
         .filter(t => /^[A-Z0-9.\-]{1,10}$/.test(t))
     )];
 
-    if (!uniqueTickers.length) return {};
-
     const results = {};
+    const errors = [];
+    let apiRequests = 0;
+    let processed = 0;
 
-    const BATCH_SIZE = 8;
+    // 먼저 최근 캐시를 사용한다.
+    const uncachedTickers = [];
 
-    for (let i = 0; i < uniqueTickers.length; i += BATCH_SIZE) {
+    uniqueTickers.forEach(ticker => {
+      const cached = getFreshCachedPrice(ticker);
 
-      const chunk = uniqueTickers.slice(i, i + BATCH_SIZE);
+      if (cached) {
+        results[ticker] = cached;
+        processed++;
+      } else {
+        uncachedTickers.push(ticker);
+      }
+    });
 
-      const url =
-        "https://api.twelvedata.com/price" +
-        "?symbol=" + encodeURIComponent(chunk.join(",")) +
-        "&apikey=" + encodeURIComponent(apiKey);
+    if (progressCallback) {
+      progressCallback(processed, uniqueTickers.length, apiRequests, "캐시 확인");
+    }
 
-      const response = await fetch(url);
+    for (
+      let i = 0;
+      i < uncachedTickers.length;
+      i += TWELVE_BATCH_SIZE
+    ) {
 
-      if (!response.ok) {
-        throw new Error(
-          "Twelve Data API 통신 오류 HTTP " + response.status
+      const chunk = uncachedTickers.slice(
+        i,
+        i + TWELVE_BATCH_SIZE
+      );
+
+      if (progressCallback) {
+        progressCallback(
+          processed,
+          uniqueTickers.length,
+          apiRequests,
+          "조회 중: " + chunk.join(", ")
         );
       }
 
-      const data = await response.json();
+      try {
 
-      if (data && data.code && data.message) {
-        throw new Error(
-          "Twelve Data: " + String(data.message)
-        );
+        const data = await requestTwelveBatch(chunk, apiKey);
+        apiRequests++;
+
+        const batchResults = extractBatchPrices(data, chunk);
+
+        chunk.forEach(ticker => {
+
+          if (batchResults[ticker]) {
+            results[ticker] = batchResults[ticker];
+            processed++;
+          } else {
+            errors.push(
+              ticker + " — 시세 데이터 없음"
+            );
+          }
+        });
+
+        if (progressCallback) {
+          progressCallback(
+            processed,
+            uniqueTickers.length,
+            apiRequests,
+            "완료: " + chunk.join(", ")
+          );
+        }
+
+      } catch (error) {
+
+        apiRequests++;
+
+        const message =
+          error && error.message
+            ? error.message
+            : "시세 조회 실패";
+
+        chunk.forEach(ticker => {
+          errors.push(ticker + " — " + message);
+        });
+
+        // 429는 추가 호출을 하면 더 악화되므로 즉시 중단한다.
+        if (error && error.code === "RATE_LIMIT") {
+          break;
+        }
+
+        // 인증/권한/서비스 오류도 반복 호출하지 않는다.
+        break;
       }
 
-      Object.keys(data || {}).forEach(symbol => {
-        const row = data[symbol];
-        if (!row || typeof row !== "object") return;
+      const hasMore =
+        i + TWELVE_BATCH_SIZE < uncachedTickers.length;
 
-        const price = Number(row.price);
-        if (Number.isFinite(price) && price > 0) {
-          results[String(symbol).toUpperCase()] = {
-            price,
-            date: new Date().toISOString(),
-            status: "LIVE",
-            label: "현재가",
-            source: "twelvedata"
-          };
+      if (hasMore) {
+
+        let remaining = TWELVE_BATCH_WAIT_MS / 1000;
+
+        while (remaining > 0) {
+
+          if (progressCallback) {
+            progressCallback(
+              processed,
+              uniqueTickers.length,
+              apiRequests,
+              "다음 API 한도 대기 중 — " + remaining + "초"
+            );
+          }
+
+          const step = Math.min(5, remaining);
+          await sleep(step * 1000);
+          remaining -= step;
         }
-      });
-
-      if (uniqueTickers.length === 1 && data && data.price) {
-        const price = Number(data.price);
-        if (Number.isFinite(price) && price > 0) {
-          results[uniqueTickers[0]] = {
-            price,
-            date: new Date().toISOString(),
-            status: "LIVE",
-            label: "현재가",
-            source: "twelvedata"
-          };
-        }
-      }
-
-      // Twelve Data Basic 무료 플랜은 분당 8 API credits이므로
-      // 8종목 배치마다 다음 분까지 기다립니다.
-      if (i + BATCH_SIZE < uniqueTickers.length) {
-        await sleep(61000);
       }
     }
 
-    return results;
+    return {
+      results,
+      errors,
+      apiRequests
+    };
   }
 
   /* =========================================================
@@ -6501,7 +6688,7 @@
     if (button) button.disabled = true;
 
     status.className = "status loading";
-    status.textContent = "시세를 8종목씩 조회하는 중입니다...";
+    status.textContent = "시세 업데이트 준비 중...";
 
     const activeHoldings = holdings.filter(item =>
       item &&
@@ -6517,10 +6704,28 @@
 
     let success = 0;
     let failed = 0;
+    let apiRequests = 0;
+    let errorItems = [];
 
     try {
 
-      const results = await getBatchPrices(tickers);
+      const payload = await getBatchPrices(
+        tickers,
+        (processed, total, requests, message) => {
+          status.textContent =
+            "시세 업데이트 — " +
+            processed + "/" +
+            total +
+            "종목 · API " +
+            requests +
+            "회 · " +
+            message;
+        }
+      );
+
+      const results = payload.results;
+      apiRequests = payload.apiRequests;
+      errorItems = payload.errors;
 
       activeHoldings.forEach(item => {
 
@@ -6530,7 +6735,9 @@
         item.priceError = null;
 
         if (!result) {
-          item.priceError = ticker + ": 시세 데이터를 받지 못했습니다.";
+          item.priceError =
+            errorItems.find(e => e.indexOf(ticker + " —") === 0) ||
+            (ticker + " — 시세 데이터를 받지 못했습니다.");
           failed++;
           return;
         }
@@ -6577,17 +6784,20 @@
       localStorage.setItem(LAST_UPDATED_STORAGE, lastUpdatedAt);
     }
 
-    localStorage.setItem(PRICE_CACHE_KEY, JSON.stringify(priceCache));
+    localStorage.setItem(
+      PRICE_CACHE_KEY,
+      JSON.stringify(priceCache)
+    );
 
     renderLastUpdated();
     renderPortfolio();
 
     status.className = "status";
 
-    const errorItems = holdings
+    const visibleErrors = activeHoldings
       .filter(item => item.priceError)
       .slice(0, 3)
-      .map(item => item.ticker + " — " + item.priceError);
+      .map(item => item.ticker + " — " + item.priceError.replace(item.ticker + " — ", ""));
 
     let message =
       "시세 업데이트 완료 — 성공 " +
@@ -6595,10 +6805,11 @@
       "개 / 실패 " +
       failed +
       "개 / API 요청 " +
-      (tickers.length ? "1회" : "0회");
+      apiRequests +
+      "회";
 
-    if (errorItems.length) {
-      message += "\n" + errorItems.join("\n");
+    if (visibleErrors.length) {
+      message += "\n" + visibleErrors.join("\n");
     }
 
     status.textContent = message;
