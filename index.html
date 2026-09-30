@@ -1516,6 +1516,14 @@
         >
           🧠 추천 계산
         </button>
+
+        <button
+          id="exportPortfolioButton"
+          class="button-secondary"
+          onclick="exportPortfolioCSV()"
+        >
+          📥 표 다운로드
+        </button>
       </div>
     </div>
 
@@ -3310,6 +3318,91 @@
     } else {
       el.className = "status";
       el.textContent = `전체 100% = 현금 ${cash}% + 종목 ${investable.toFixed(1)}% + 미배분 ${unallocated}%.`;
+    }
+  }
+
+  function csvEscape(value) {
+    const text = value === null || value === undefined ? "" : String(value);
+    return /[",\n\r]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+  }
+
+  function exportPortfolioCSV() {
+    try {
+      const portfolio = calculatePortfolio();
+      const sorted = getSortedHoldings(portfolio);
+      const targetCashPercent = getTargetCashPercent();
+      const targetUnallocatedPercent = getTargetUnallocatedPercent();
+      const rows = [];
+
+      rows.push(["Portfolio Manager", "포트폴리오 현황"]);
+      rows.push(["기준일", new Date().toLocaleString("ko-KR")]);
+      rows.push([]);
+      rows.push([
+        "티커", "종목명", "보유수량", "평균매수가", "현재가", "평가금액",
+        "손익", "수익률(%)", "현재비중(%)", "추천점수", "추천비중(%)",
+        "목표비중(%)", "비중차이(%p)", "목표금액", "추가/매도금액"
+      ]);
+
+      let stockTargetTotal = 0;
+
+      sorted.forEach(item => {
+        const market = getHoldingMarketData(item);
+        const quantity = Number(item.quantity) || 0;
+        const avgPrice = Number(item.avgPrice) || 0;
+        const cost = avgPrice * quantity;
+        const value = market.hasPrice ? market.value : 0;
+        const profit = market.hasPrice ? value - cost : null;
+        const returnPct = cost > 0 && profit !== null ? (profit / cost) * 100 : null;
+        const currentWeight = market.hasPrice && portfolio.totalValue > 0 ? (value / portfolio.totalValue) * 100 : null;
+        const recommended = Number(item.recommendedWeight);
+        const target = Number(item.targetWeight) || 0;
+        const targetValue = portfolio.totalValue * target / 100;
+        const diff = target - (currentWeight === null ? 0 : currentWeight);
+        const rebalance = targetValue - value;
+        stockTargetTotal += target;
+
+        rows.push([
+          item.ticker || "",
+          item.name || item.ticker || "",
+          quantity,
+          avgPrice,
+          market.hasPrice ? market.price : "",
+          market.hasPrice ? value : "",
+          profit === null ? "" : profit,
+          returnPct === null ? "" : returnPct,
+          currentWeight === null ? "" : currentWeight,
+          Number.isFinite(recommended) ? recommended : "",
+          target,
+          target,
+          diff,
+          targetValue,
+          market.hasPrice ? rebalance : ""
+        ]);
+      });
+
+      rows.push([]);
+      rows.push(["합계", "", "", "", "", portfolio.stockValue, portfolio.totalProfit, portfolio.totalReturn ?? "", portfolio.totalValue > 0 ? portfolio.stockValue / portfolio.totalValue * 100 : "", "", stockTargetTotal, stockTargetTotal, "", portfolio.totalValue * stockTargetTotal / 100, ""]);
+      rows.push(["현금", "", "", "", "", portfolio.cashBalance, "", "", portfolio.totalValue > 0 ? portfolio.cashBalance / portfolio.totalValue * 100 : "", "", "", targetCashPercent, "", portfolio.totalValue * targetCashPercent / 100, ""]);
+      rows.push(["미배분", "", "", "", "", "", "", "", "", "", "", targetUnallocatedPercent, "", portfolio.totalValue * targetUnallocatedPercent / 100, ""]);
+      rows.push(["총자산", "", "", "", "", portfolio.totalValue, "", "", "", "", "", stockTargetTotal + targetCashPercent + targetUnallocatedPercent, "", ""]);
+
+      const csv = "\uFEFF" + rows.map(row => row.map(csvEscape).join(",")).join("\r\n");
+      const blob = new Blob([csv], {type: "text/csv;charset=utf-8;"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const date = new Date().toISOString().slice(0,10);
+      a.href = url;
+      a.download = `portfolio_${date}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      const status = document.getElementById("updateStatus");
+      if (status) status.textContent = "📥 포트폴리오 표를 다운로드했습니다.";
+    } catch (error) {
+      console.error("exportPortfolioCSV error:", error);
+      const status = document.getElementById("updateStatus");
+      if (status) status.textContent = "❌ 포트폴리오 표 다운로드에 실패했습니다.";
     }
   }
 
