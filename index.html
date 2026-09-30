@@ -1502,6 +1502,14 @@
 
       <div class="portfolio-actions">
         <button
+          class="button-secondary"
+          onclick="copyPortfolioTable()"
+        >📋 표 복사</button>
+        <button
+          class="button-secondary"
+          onclick="downloadPortfolioTable()"
+        >📥 표 다운로드</button>
+        <button
           id="refreshPricesButton"
           class="button-secondary"
           onclick="refreshPrices()"
@@ -1526,7 +1534,7 @@
         <option value="CUSTOM">② 투자자 맞춤형 — 내가 정한 가중치</option>
       </select>
       <div id="customRecommendationSettings" style="display:none;margin-top:10px;">
-        <div style="font-size:12px;opacity:.75;margin-bottom:8px;">재무 데이터는 동일하게 사용하되, 아래 가중치로 추천점수를 다시 계산합니다. 합계가 100%인지 확인한 뒤 계산합니다.</div>
+        <div style="font-size:12px;opacity:.75;margin-bottom:8px;">재무 데이터는 동일하게 사용하되, 아래 가중치로 추천점수를 다시 계산합니다. 합계는 자동으로 100%로 맞춥니다.</div>
         <div class="form-grid" style="grid-template-columns:repeat(2,minmax(0,1fr));">
           <label>성장성 <input id="customGrowthWeight" type="number" min="0" max="100" step="1" value="30"></label>
           <label>수익성 <input id="customProfitabilityWeight" type="number" min="0" max="100" step="1" value="25"></label>
@@ -1543,8 +1551,8 @@
     </div>
 
     <div class="dashboard-note">
-      시세는 Twelve Data 우선 + Alpha Vantage 제한적 보조조회 + 캐시 구조입니다.<br>
-      추천점수는 원천 재무데이터의 가용성을 반영한 상대점수이며, 매매 신호나 미래수익률 예측값이 아닙니다.
+      최근 거래일 종가를 기준으로 현재 비중과 목표 비중을 계산합니다.
+      시세가 없는 종목은 리밸런싱 계산에서 제외합니다.
     </div>
 
     <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:10px 0 8px;">
@@ -1607,16 +1615,13 @@
     >
       목표 비중 합계: <strong>0.00%</strong>
     </div>
-    <div id="recommendationTotal" class="target-total" style="margin-top:6px;">
-      추천 비중 합계: <strong>계산 전</strong>
-    </div>
 
     <details class="recommend-info">
       <summary>추천 비중 엔진 설명</summary>
 
       <div style="margin-top:10px;">
 
-      <strong>추천 비중 엔진 v5</strong><br>
+      <strong>추천 비중 엔진 v4</strong><br>
 
       성장성 25% + 수익성 20% + 재무건전성 20% + FCF 10% +
       밸류에이션 15% + 위험도 10%를 이용해
@@ -2574,20 +2579,13 @@
 
     valid.forEach(
       item => {
-        item.targetWeight = Number(item.recommendedWeight) || 0;
+
+        item.targetWeight =
+          item.recommendedWeight;
+
       }
     );
 
-    const targetCash = getTargetCashPercent();
-    const targetUnallocated = getTargetUnallocatedPercent();
-    const appliedStockTotal = valid.reduce((sum, item) => sum + (Number(item.targetWeight) || 0), 0);
-    const appliedTotal = appliedStockTotal + targetCash + targetUnallocated;
-    if (appliedTotal < 99.999) {
-      const residual = Number((100 - appliedTotal).toFixed(2));
-      const nextUnallocated = Number((targetUnallocated + residual).toFixed(2));
-      localStorage.setItem(TARGET_UNALLOCATED_KEY, String(nextUnallocated));
-      alert(`추천 상한으로 ${residual}%가 남아 미배분 비중에 자동 반영했습니다.`);
-    }
 
     saveHoldings();
 
@@ -3891,7 +3889,7 @@
 
             <div class="holding-extra">
               <span>${priceLabel} ${money(price)}</span>
-              <span>${market.priceSource === "twelvedata" ? "조회시각" : "기준일"} ${market.sourceDate || "-"}</span>
+              <span>${market.priceSource === "intraday" ? "기준시각" : "기준일"} ${market.sourceDate || "-"}</span>
               <span>평균 ${money(item.avgPrice)}</span>
               <span>수량 ${numberFormat(item.quantity)}</span>
               <span>목표금액 ${money(targetValue)}</span>
@@ -4439,7 +4437,6 @@
     updateSummary();
 
     updateTargetTotal();
-    updateRecommendationTotal();
 
     updateRebalanceSummary();
 
@@ -4473,33 +4470,6 @@
       message += ' <span class="positive">✓ 100%</span>';
     }
     element.innerHTML = message;
-  }
-
-  function updateRecommendationTotal() {
-    const element = document.getElementById("recommendationTotal");
-    if (!element) return;
-
-    const stockRecommended = holdings.reduce((sum, item) => {
-      const value = Number(item.recommendedWeight);
-      return sum + (Number.isFinite(value) ? value : 0);
-    }, 0);
-    const cash = getTargetCashPercent();
-    const unallocated = getTargetUnallocatedPercent();
-    const total = stockRecommended + cash + unallocated;
-
-    if (!holdings.some(item => item.recommendedWeight !== null && item.recommendedWeight !== undefined)) {
-      element.innerHTML = '추천 비중 합계: <strong>계산 전</strong>';
-      return;
-    }
-
-    element.innerHTML =
-      `추천 비중 합계: <strong>${percent(total)}</strong>` +
-      ` <span class="neutral">종목 ${percent(stockRecommended)} / 현금 ${percent(cash)} / 미배분 ${percent(unallocated)}</span>` +
-      (total > 100.001
-        ? ' <span class="negative">⚠️ 100% 초과</span>'
-        : total < 99.999
-          ? ` <span class="neutral">모델 잔여 ${percent(100-total)}</span>`
-          : ' <span class="positive">✓ 100%</span>');
   }
 
   /* =========================================================
@@ -5284,7 +5254,7 @@
 
 
   /* =========================================================
-     추천 점수 엔진 v5 — 데이터 가용성/밸류에이션 개선
+     추천 점수 엔진 v4
      총 100점
 
      성장성       25
@@ -5293,309 +5263,420 @@
      FCF          10
      밸류에이션   15
      위험도       10
-
-     핵심 원칙
-     - 데이터가 없다고 임의의 중립값을 넣어 점수를 부풀리지 않습니다.
-     - 각 구성요소는 실제 존재하는 지표만으로 계산합니다.
-     - Forward P/E가 있으면 Trailing P/E보다 우선합니다.
-     - 최종 점수에는 전체 데이터 품질 보정을 별도로 적용합니다.
   ========================================================= */
 
-  function normalizedMetricScore(value, bands) {
-    if (value === null || !Number.isFinite(Number(value))) return null;
-    const v = Number(value);
-    for (const band of bands) {
-      if (band.test(v)) return band.score;
-    }
-    return 0;
-  }
-
-  function componentScore(parts, maxPoints) {
-    const available = parts.filter(part => part.score !== null);
-    if (!available.length) {
-      return { score: 0, coverage: 0 };
-    }
-    const avg = available.reduce((sum, part) => sum + part.score, 0) / available.length;
-    const coverage = available.length / parts.length;
-    // 한 지표만 있을 때도 무리하게 100% 신뢰하지 않도록 가벼운 감점만 적용합니다.
-    const coverageFactor = 0.80 + 0.20 * coverage;
-    return {
-      score: clamp(avg * maxPoints * coverageFactor, 0, maxPoints),
-      coverage
-    };
-  }
-
   function growthScore(data) {
+
     const revenueGrowth = safeNumber(data["QuarterlyRevenueGrowthYOY"]);
     const earningsGrowth = safeNumber(data["QuarterlyEarningsGrowthYOY"]);
 
-    const bands = [
-      { test: v => v >= 30, score: 1.00 },
-      { test: v => v >= 20, score: 0.90 },
-      { test: v => v >= 10, score: 0.75 },
-      { test: v => v >= 5, score: 0.60 },
-      { test: v => v >= 0, score: 0.50 },
-      { test: v => v >= -10, score: 0.25 },
-      { test: _ => true, score: 0.00 }
-    ];
+    function growthPart(value, maxPoints) {
+      if (value === null) return maxPoints / 2;
+      if (value >= 30) return maxPoints;
+      if (value >= 20) return maxPoints * 0.90;
+      if (value >= 10) return maxPoints * 0.75;
+      if (value >= 5) return maxPoints * 0.60;
+      if (value >= 0) return maxPoints * 0.50;
+      if (value >= -10) return maxPoints * 0.25;
+      return 0;
+    }
 
-    return componentScore([
-      { score: normalizedMetricScore(revenueGrowth, bands) },
-      { score: normalizedMetricScore(earningsGrowth, bands) }
-    ], 25).score;
+    return clamp(
+      growthPart(revenueGrowth, 12.5) +
+      growthPart(earningsGrowth, 12.5),
+      0,
+      25
+    );
   }
 
+
   function profitabilityScore(data) {
+
     const operatingMargin = safeNumber(data["OperatingMarginTTM"]);
     const roe = safeNumber(data["ReturnOnEquityTTM"]);
 
-    const marginBands = [
-      { test: v => v >= 30, score: 1.00 },
-      { test: v => v >= 20, score: 0.90 },
-      { test: v => v >= 15, score: 0.80 },
-      { test: v => v >= 10, score: 0.70 },
-      { test: v => v >= 5, score: 0.55 },
-      { test: v => v >= 0, score: 0.30 },
-      { test: _ => true, score: 0.00 }
-    ];
-    const roeBands = [
-      { test: v => v >= 30, score: 1.00 },
-      { test: v => v >= 20, score: 0.90 },
-      { test: v => v >= 15, score: 0.80 },
-      { test: v => v >= 10, score: 0.70 },
-      { test: v => v >= 5, score: 0.55 },
-      { test: v => v >= 0, score: 0.30 },
-      { test: _ => true, score: 0.00 }
-    ];
+    function marginPart(value) {
+      if (value === null) return 5;
+      if (value >= 30) return 10;
+      if (value >= 20) return 9;
+      if (value >= 15) return 8;
+      if (value >= 10) return 7;
+      if (value >= 5) return 5.5;
+      if (value >= 0) return 3;
+      return 0;
+    }
 
-    return componentScore([
-      { score: normalizedMetricScore(operatingMargin, marginBands) },
-      { score: normalizedMetricScore(roe, roeBands) }
-    ], 20).score;
+    function roePart(value) {
+      if (value === null) return 5;
+      if (value >= 30) return 10;
+      if (value >= 20) return 9;
+      if (value >= 15) return 8;
+      if (value >= 10) return 7;
+      if (value >= 5) return 5.5;
+      if (value >= 0) return 3;
+      return 0;
+    }
+
+    return clamp(
+      marginPart(operatingMargin) + roePart(roe),
+      0,
+      20
+    );
   }
+
 
   /*
      EV/EBITDA와 시가총액/EBITDA의 차이로
      Net Debt / EBITDA를 근사합니다.
-     실제 EV 구성요소에 따라 오차가 있을 수 있어 참고용으로만 사용합니다.
+     두 데이터가 모두 있을 때만 사용합니다.
   */
   function getNetDebtToEbitda(data) {
+
     const evToEbitda = safeNumber(data["EVToEBITDA"]);
     const marketCap = firstNumber(data, ["MarketCapitalization"]);
     const ebitda = firstNumber(data, ["EBITDA"]);
-    if (evToEbitda === null || marketCap === null || ebitda === null || ebitda <= 0) return null;
-    const value = evToEbitda - (marketCap / ebitda);
+
+    if (
+      evToEbitda === null ||
+      marketCap === null ||
+      ebitda === null ||
+      ebitda <= 0
+    ) {
+      return null;
+    }
+
+    const marketCapToEbitda = marketCap / ebitda;
+    const value = evToEbitda - marketCapToEbitda;
+
     return Number.isFinite(value) ? value : null;
   }
 
+
   function getInterestCoverage(data) {
-    const operatingIncome = firstNumber(data, ["OperatingIncomeTTM", "OperatingIncome"]);
+
+    // 가능하면 EBIT(영업이익)를 사용하고, 해당 데이터가 없으면 EBITDA를 대체값으로 사용합니다.
+    const operatingIncome = firstNumber(data, [
+      "OperatingIncomeTTM",
+      "OperatingIncome"
+    ]);
+
     const ebitda = firstNumber(data, ["EBITDA"]);
-    const interest = firstNumber(data, ["InterestExpenseTTM", "InterestExpense", "InterestExpenseNonOperating"]);
-    const numerator = operatingIncome !== null ? operatingIncome : ebitda;
-    if (numerator === null || interest === null || interest <= 0) return null;
+
+    const interest = firstNumber(data, [
+      "InterestExpenseTTM",
+      "InterestExpense",
+      "InterestExpenseNonOperating"
+    ]);
+
+    const numerator =
+      operatingIncome !== null
+        ? operatingIncome
+        : ebitda;
+
+    if (
+      numerator === null ||
+      interest === null ||
+      interest <= 0
+    ) {
+      return null;
+    }
+
     return numerator / interest;
   }
 
+
   function getDilutionGap(data) {
+
     const shares = firstNumber(data, ["SharesOutstanding"]);
-    const diluted = firstNumber(data, ["DilutedSharesOutstanding", "DilutedShares"]);
-    if (shares === null || diluted === null || shares <= 0) return null;
+    const diluted = firstNumber(data, [
+      "DilutedSharesOutstanding",
+      "DilutedShares"
+    ]);
+
+    if (
+      shares === null ||
+      diluted === null ||
+      shares <= 0
+    ) {
+      return null;
+    }
+
     return ((diluted / shares) - 1) * 100;
   }
 
+
   function financialStrengthScore(data) {
-    const debtToEquity = firstNumber(data, ["DebtToEquity", "DebtEquityRatio"]);
+
+    const debtToEquity = firstNumber(data, [
+      "DebtToEquity",
+      "DebtEquityRatio"
+    ]);
+
     const currentRatio = firstNumber(data, ["CurrentRatio"]);
-    const operatingCashflow = firstNumber(data, ["OperatingCashflow", "OperatingCashFlow"]);
+    const operatingCashflow = firstNumber(data, [
+      "OperatingCashflow",
+      "OperatingCashFlow"
+    ]);
     const revenueTTM = firstNumber(data, ["RevenueTTM"]);
     const netDebtToEbitda = getNetDebtToEbitda(data);
     const interestCoverage = getInterestCoverage(data);
 
-    const debtBands = [
-      { test: v => v <= 30, score: 1.00 },
-      { test: v => v <= 60, score: 0.84 },
-      { test: v => v <= 100, score: 0.68 },
-      { test: v => v <= 150, score: 0.50 },
-      { test: v => v <= 250, score: 0.25 },
-      { test: _ => true, score: 0.00 }
-    ];
-    const ratioBands = [
-      { test: v => v >= 2.0, score: 1.00 },
-      { test: v => v >= 1.5, score: 0.88 },
-      { test: v => v >= 1.2, score: 0.75 },
-      { test: v => v >= 1.0, score: 0.60 },
-      { test: v => v >= 0.75, score: 0.25 },
-      { test: _ => true, score: 0.00 }
-    ];
-    const cashMargin = operatingCashflow !== null && revenueTTM !== null && revenueTTM > 0
-      ? (operatingCashflow / revenueTTM) * 100 : null;
-    const cashBands = [
-      { test: v => v >= 20, score: 1.00 },
-      { test: v => v >= 15, score: 0.88 },
-      { test: v => v >= 10, score: 0.75 },
-      { test: v => v >= 5, score: 0.60 },
-      { test: v => v >= 0, score: 0.30 },
-      { test: _ => true, score: 0.00 }
-    ];
-    const leverageBands = [
-      { test: v => v <= 0, score: 1.00 },
-      { test: v => v <= 1, score: 0.92 },
-      { test: v => v <= 2, score: 0.78 },
-      { test: v => v <= 3, score: 0.58 },
-      { test: v => v <= 4, score: 0.30 },
-      { test: _ => true, score: 0.00 }
-    ];
-    const interestBands = [
-      { test: v => v >= 10, score: 1.00 },
-      { test: v => v >= 6, score: 0.88 },
-      { test: v => v >= 3, score: 0.72 },
-      { test: v => v >= 1.5, score: 0.45 },
-      { test: _ => true, score: 0.00 }
-    ];
+    let debtPart = 3;
+    let liquidityPart = 3;
+    let cashflowPart = 3;
+    let leveragePart = 2;
+    let interestPart = 1;
 
-    return componentScore([
-      { score: normalizedMetricScore(debtToEquity, debtBands) },
-      { score: normalizedMetricScore(currentRatio, ratioBands) },
-      { score: normalizedMetricScore(cashMargin, cashBands) },
-      { score: normalizedMetricScore(netDebtToEbitda, leverageBands) },
-      { score: normalizedMetricScore(interestCoverage, interestBands) }
-    ], 20).score;
+    if (debtToEquity !== null && debtToEquity >= 0) {
+      if (debtToEquity <= 30) debtPart = 6;
+      else if (debtToEquity <= 60) debtPart = 5;
+      else if (debtToEquity <= 100) debtPart = 4;
+      else if (debtToEquity <= 150) debtPart = 3;
+      else if (debtToEquity <= 250) debtPart = 1.5;
+      else debtPart = 0;
+    }
+
+    if (currentRatio !== null && currentRatio >= 0) {
+      if (currentRatio >= 2) liquidityPart = 4;
+      else if (currentRatio >= 1.5) liquidityPart = 3.5;
+      else if (currentRatio >= 1.2) liquidityPart = 3;
+      else if (currentRatio >= 1) liquidityPart = 2.5;
+      else if (currentRatio >= 0.75) liquidityPart = 1;
+      else liquidityPart = 0;
+    }
+
+    if (
+      operatingCashflow !== null &&
+      revenueTTM !== null &&
+      revenueTTM > 0
+    ) {
+      const margin = (operatingCashflow / revenueTTM) * 100;
+      if (margin >= 20) cashflowPart = 4;
+      else if (margin >= 15) cashflowPart = 3.5;
+      else if (margin >= 10) cashflowPart = 3;
+      else if (margin >= 5) cashflowPart = 2.5;
+      else if (margin >= 0) cashflowPart = 1;
+      else cashflowPart = 0;
+    }
+
+    if (netDebtToEbitda !== null) {
+      if (netDebtToEbitda <= 0) leveragePart = 3;
+      else if (netDebtToEbitda <= 1) leveragePart = 2.8;
+      else if (netDebtToEbitda <= 2) leveragePart = 2.3;
+      else if (netDebtToEbitda <= 3) leveragePart = 1.5;
+      else if (netDebtToEbitda <= 4) leveragePart = 0.7;
+      else leveragePart = 0;
+    }
+
+    if (interestCoverage !== null) {
+      if (interestCoverage >= 10) interestPart = 3;
+      else if (interestCoverage >= 6) interestPart = 2.5;
+      else if (interestCoverage >= 3) interestPart = 2;
+      else if (interestCoverage >= 1.5) interestPart = 1;
+      else interestPart = 0;
+    }
+
+    return clamp(
+      debtPart + liquidityPart + cashflowPart + leveragePart + interestPart,
+      0,
+      20
+    );
   }
 
+
   function getFreeCashFlow(data) {
-    const direct = firstNumber(data, ["FreeCashFlow", "FreeCashFlowTTM"]);
+    const direct = firstNumber(data, [
+      "FreeCashFlow",
+      "FreeCashFlowTTM"
+    ]);
     if (direct !== null) return direct;
-    const ocf = firstNumber(data, ["OperatingCashflow", "OperatingCashFlow"]);
-    const capex = firstNumber(data, ["CapitalExpenditures", "CapitalExpenditure", "CapitalExpendituresTTM"]);
-    if (ocf !== null && capex !== null) return ocf - Math.abs(capex);
+
+    const ocf = firstNumber(data, [
+      "OperatingCashflow",
+      "OperatingCashFlow"
+    ]);
+    const capex = firstNumber(data, [
+      "CapitalExpenditures",
+      "CapitalExpenditure",
+      "CapitalExpendituresTTM"
+    ]);
+
+    if (ocf !== null && capex !== null) {
+      return ocf - Math.abs(capex);
+    }
+
     return null;
   }
 
+
   function freeCashFlowScore(data) {
+
     const fcf = getFreeCashFlow(data);
     const revenue = firstNumber(data, ["RevenueTTM"]);
     const marketCap = firstNumber(data, ["MarketCapitalization"]);
-    const margin = fcf !== null && revenue !== null && revenue > 0 ? (fcf / revenue) * 100 : null;
-    const yieldPct = fcf !== null && marketCap !== null && marketCap > 0 ? (fcf / marketCap) * 100 : null;
-    const marginBands = [
-      { test: v => v >= 20, score: 1.00 },
-      { test: v => v >= 15, score: 0.90 },
-      { test: v => v >= 10, score: 0.80 },
-      { test: v => v >= 5, score: 0.65 },
-      { test: v => v >= 0, score: 0.50 },
-      { test: v => v >= -5, score: 0.20 },
-      { test: _ => true, score: 0.00 }
-    ];
-    const yieldBands = [
-      { test: v => v >= 10, score: 1.00 },
-      { test: v => v >= 7, score: 0.90 },
-      { test: v => v >= 5, score: 0.80 },
-      { test: v => v >= 3, score: 0.65 },
-      { test: v => v >= 1, score: 0.50 },
-      { test: v => v >= 0, score: 0.30 },
-      { test: _ => true, score: 0.00 }
-    ];
-    return componentScore([
-      { score: normalizedMetricScore(margin, marginBands) },
-      { score: normalizedMetricScore(yieldPct, yieldBands) }
-    ], 10).score;
+
+    // FCF 10점 = FCF 마진 5점 + FCF Yield 5점
+    let marginPart = 2.5;
+    let yieldPart = 2.5;
+
+    if (fcf !== null) {
+      if (revenue !== null && revenue > 0) {
+        const margin = (fcf / revenue) * 100;
+        if (margin >= 20) marginPart = 5;
+        else if (margin >= 15) marginPart = 4.5;
+        else if (margin >= 10) marginPart = 4;
+        else if (margin >= 5) marginPart = 3.5;
+        else if (margin >= 0) marginPart = 2.5;
+        else if (margin >= -5) marginPart = 1.5;
+        else marginPart = 0;
+      }
+
+      if (marketCap !== null && marketCap > 0) {
+        const yieldPercent = (fcf / marketCap) * 100;
+        if (yieldPercent >= 10) yieldPart = 5;
+        else if (yieldPercent >= 7) yieldPart = 4.5;
+        else if (yieldPercent >= 5) yieldPart = 4;
+        else if (yieldPercent >= 3) yieldPart = 3.5;
+        else if (yieldPercent >= 1) yieldPart = 2.5;
+        else if (yieldPercent >= 0) yieldPart = 1.5;
+        else yieldPart = 0;
+      }
+    }
+
+    return clamp(
+      marginPart + yieldPart,
+      0,
+      10
+    );
   }
 
+
   function valuationScore(data) {
-    const forwardPe = firstNumber(data, ["ForwardPE"]);
-    const trailingPe = firstNumber(data, ["PERatio", "TrailingPE"]);
-    const pe = forwardPe !== null && forwardPe > 0 ? forwardPe : trailingPe;
+
     const peg = safeNumber(data["PEGRatio"]);
+    const pe = firstNumber(data, ["PERatio", "TrailingPE"]);
     const ps = safeNumber(data["PriceToSalesRatioTTM"]);
     const evEbitda = safeNumber(data["EVToEBITDA"]);
 
-    const peBands = [
-      { test: v => v <= 15, score: 1.00 },
-      { test: v => v <= 20, score: 0.90 },
-      { test: v => v <= 30, score: 0.76 },
-      { test: v => v <= 40, score: 0.58 },
-      { test: v => v <= 60, score: 0.30 },
-      { test: _ => true, score: 0.00 }
-    ];
-    const pegBands = [
-      { test: v => v <= 0.8, score: 1.00 },
-      { test: v => v <= 1.2, score: 0.88 },
-      { test: v => v <= 1.8, score: 0.74 },
-      { test: v => v <= 2.5, score: 0.55 },
-      { test: v => v <= 4, score: 0.30 },
-      { test: _ => true, score: 0.00 }
-    ];
-    const psBands = [
-      { test: v => v <= 2, score: 1.00 },
-      { test: v => v <= 4, score: 0.88 },
-      { test: v => v <= 8, score: 0.70 },
-      { test: v => v <= 15, score: 0.45 },
-      { test: _ => true, score: 0.00 }
-    ];
-    const evBands = [
-      { test: v => v <= 10, score: 1.00 },
-      { test: v => v <= 15, score: 0.90 },
-      { test: v => v <= 20, score: 0.75 },
-      { test: v => v <= 30, score: 0.58 },
-      { test: v => v <= 50, score: 0.30 },
-      { test: _ => true, score: 0.00 }
-    ];
+    // 밸류에이션 15점 = PEG 4 + PER 4 + PSR 3 + EV/EBITDA 4
+    let pegPart = 2;
+    let pePart = 2;
+    let psPart = 1.5;
+    let evPart = 2;
 
-    return componentScore([
-      { score: normalizedMetricScore(pe !== null && pe > 0 ? pe : null, peBands) },
-      { score: normalizedMetricScore(peg, pegBands) },
-      { score: normalizedMetricScore(ps, psBands) },
-      { score: normalizedMetricScore(evEbitda, evBands) }
-    ], 15).score;
+    if (peg !== null && peg > 0) {
+      if (peg <= 0.8) pegPart = 4;
+      else if (peg <= 1.2) pegPart = 3.5;
+      else if (peg <= 1.8) pegPart = 3;
+      else if (peg <= 2.5) pegPart = 2;
+      else if (peg <= 4) pegPart = 1;
+      else pegPart = 0;
+    }
+
+    if (pe !== null && pe > 0) {
+      if (pe <= 15) pePart = 4;
+      else if (pe <= 20) pePart = 3.6;
+      else if (pe <= 30) pePart = 3;
+      else if (pe <= 40) pePart = 2.2;
+      else if (pe <= 60) pePart = 1;
+      else pePart = 0;
+    }
+
+    if (ps !== null && ps > 0) {
+      if (ps <= 2) psPart = 3;
+      else if (ps <= 4) psPart = 2.6;
+      else if (ps <= 8) psPart = 2.1;
+      else if (ps <= 15) psPart = 1;
+      else psPart = 0;
+    }
+
+    if (evEbitda !== null && evEbitda > 0) {
+      if (evEbitda <= 10) evPart = 4;
+      else if (evEbitda <= 15) evPart = 3.6;
+      else if (evEbitda <= 20) evPart = 3;
+      else if (evEbitda <= 30) evPart = 2.2;
+      else if (evEbitda <= 50) evPart = 1;
+      else evPart = 0;
+    }
+
+    return clamp(
+      pegPart + pePart + psPart + evPart,
+      0,
+      15
+    );
   }
 
+
   function riskScore(data) {
+
     const beta = safeNumber(data["Beta"]);
     const netDebtToEbitda = getNetDebtToEbitda(data);
     const interestCoverage = getInterestCoverage(data);
     const dilutionGap = getDilutionGap(data);
 
-    const betaBands = [
-      { test: v => v <= 0.7, score: 1.00 },
-      { test: v => v <= 1.0, score: 0.88 },
-      { test: v => v <= 1.3, score: 0.75 },
-      { test: v => v <= 1.7, score: 0.55 },
-      { test: v => v <= 2.2, score: 0.30 },
-      { test: _ => true, score: 0.00 }
-    ];
-    const leverageBands = [
-      { test: v => v <= 0, score: 1.00 },
-      { test: v => v <= 1, score: 0.90 },
-      { test: v => v <= 2, score: 0.78 },
-      { test: v => v <= 3, score: 0.58 },
-      { test: v => v <= 4, score: 0.30 },
-      { test: _ => true, score: 0.00 }
-    ];
-    const interestBands = [
-      { test: v => v >= 10, score: 1.00 },
-      { test: v => v >= 6, score: 0.90 },
-      { test: v => v >= 3, score: 0.72 },
-      { test: v => v >= 1.5, score: 0.45 },
-      { test: _ => true, score: 0.00 }
-    ];
-    const dilutionBands = [
-      { test: v => v <= 2, score: 1.00 },
-      { test: v => v <= 5, score: 0.75 },
-      { test: v => v <= 10, score: 0.45 },
-      { test: _ => true, score: 0.00 }
-    ];
+    let betaPart = 2;
+    let leveragePart = 2;
+    let interestPart = 2;
+    let dilutionPart = 2;
 
-    return componentScore([
-      { score: normalizedMetricScore(beta, betaBands) },
-      { score: normalizedMetricScore(netDebtToEbitda, leverageBands) },
-      { score: normalizedMetricScore(interestCoverage, interestBands) },
-      { score: normalizedMetricScore(dilutionGap, dilutionBands) }
-    ], 10).score;
+    if (beta !== null) {
+      if (beta <= 0.7) betaPart = 4;
+      else if (beta <= 1) betaPart = 3.5;
+      else if (beta <= 1.3) betaPart = 3;
+      else if (beta <= 1.7) betaPart = 2;
+      else if (beta <= 2.2) betaPart = 1;
+      else betaPart = 0;
+    }
+
+    if (netDebtToEbitda !== null) {
+      if (netDebtToEbitda <= 0) leveragePart = 2.5;
+      else if (netDebtToEbitda <= 1) leveragePart = 2.2;
+      else if (netDebtToEbitda <= 2) leveragePart = 1.8;
+      else if (netDebtToEbitda <= 3) leveragePart = 1.2;
+      else if (netDebtToEbitda <= 4) leveragePart = 0.5;
+      else leveragePart = 0;
+    }
+
+    if (interestCoverage !== null) {
+      if (interestCoverage >= 10) interestPart = 2.5;
+      else if (interestCoverage >= 6) interestPart = 2.2;
+      else if (interestCoverage >= 3) interestPart = 1.8;
+      else if (interestCoverage >= 1.5) interestPart = 0.8;
+      else interestPart = 0;
+    }
+
+    if (dilutionGap !== null) {
+      if (dilutionGap <= 2) dilutionPart = 1;
+      else if (dilutionGap <= 5) dilutionPart = 0.7;
+      else if (dilutionGap <= 10) dilutionPart = 0.4;
+      else dilutionPart = 0;
+    }
+
+    return clamp(
+      betaPart + leveragePart + interestPart + dilutionPart,
+      0,
+      10
+    );
   }
 
+
   function calculateDataQuality(data) {
-    const hasNumber = fields => firstNumber(data, fields) !== null;
+
+    const hasNumber = fields =>
+      firstNumber(data, fields) !== null;
+
+    const hasFreeCashFlow =
+      getFreeCashFlow(data) !== null;
+
+    const hasNetDebtEbitda =
+      getNetDebtToEbitda(data) !== null;
+
+    const hasInterestCoverage =
+      getInterestCoverage(data) !== null;
+
+    const hasDilution =
+      getDilutionGap(data) !== null;
+
     const checks = [
       hasNumber(["QuarterlyRevenueGrowthYOY"]),
       hasNumber(["QuarterlyEarningsGrowthYOY"]),
@@ -5604,27 +5685,37 @@
       hasNumber(["DebtToEquity", "DebtEquityRatio"]),
       hasNumber(["CurrentRatio"]),
       hasNumber(["OperatingCashflow", "OperatingCashFlow"]),
-      getFreeCashFlow(data) !== null,
+      hasFreeCashFlow,
       hasNumber(["RevenueTTM"]),
       hasNumber(["MarketCapitalization"]),
       hasNumber(["EBITDA"]),
       hasNumber(["PEGRatio"]),
-      hasNumber(["ForwardPE", "PERatio", "TrailingPE"]),
+      hasNumber(["PERatio", "TrailingPE"]),
       hasNumber(["PriceToSalesRatioTTM"]),
       hasNumber(["EVToEBITDA"]),
       hasNumber(["Beta"]),
-      getNetDebtToEbitda(data) !== null,
-      getInterestCoverage(data) !== null,
-      getDilutionGap(data) !== null
+      hasNetDebtEbitda,
+      hasInterestCoverage,
+      hasDilution
     ];
-    const available = checks.filter(Boolean).length;
+
+    const available =
+      checks.filter(Boolean).length;
+
     const total = checks.length;
+
+    const percent =
+      total > 0
+        ? (available / total) * 100
+        : 0;
+
     return {
       available,
       total,
-      percent: total > 0 ? (available / total) * 100 : 0
+      percent
     };
   }
+
 
   /* =========================================================
      ETF 추천점수
@@ -5634,14 +5725,14 @@
   ========================================================= */
 
   const ETF_RECOMMENDATION_SCORES = {
-    broad: 55,
-    quality: 53,
-    sector: 50,
-    thematic: 45,
-    bond: 48,
-    mortgage: 42,
-    crypto: 40,
-    other: 45
+    broad: 60,
+    quality: 58,
+    sector: 55,
+    thematic: 48,
+    bond: 50,
+    mortgage: 45,
+    crypto: 45,
+    other: 50
   };
 
   const ETF_SCORE_GROUPS = {
@@ -5712,9 +5803,8 @@
         neutral: true,
         etfScore: true,
         confidenceFactor: 1,
-        dataQuality: { available: 0, total: 0, percent: null },
-        metrics: {},
-        modelNote: "ETF 별도평가"
+        dataQuality: { available: 0, total: 0, percent: 100 },
+        metrics: {}
       };
     }
 
@@ -5727,15 +5817,20 @@
     const quality = calculateDataQuality(data);
 
     const rawTotal = clamp(
-      growth + profitability + financialStrength + freeCashFlow + valuation + risk,
+      growth +
+      profitability +
+      financialStrength +
+      freeCashFlow +
+      valuation +
+      risk,
       0,
       100
     );
 
-    // 데이터가 충분할수록 원점수에 가깝게 유지하되,
-    // 데이터 부족을 이유로 점수를 과도하게 깎지 않습니다.
+    // 데이터가 부족한 종목이 중립값 덕분에 과대평가되는 것을 완화합니다.
+    // 신뢰도 100%에서는 원점수 그대로, 50%에서는 원점수의 75% 수준입니다.
     const confidenceFactor =
-      0.65 + (0.35 * (quality.percent / 100));
+      0.5 + (0.5 * (quality.percent / 100));
 
     const confidenceAdjustedScore = clamp(
       rawTotal * confidenceFactor,
@@ -5751,11 +5846,10 @@
     const currentRatio = firstNumber(data, ["CurrentRatio"]);
     const operatingCashflow = firstNumber(data, ["OperatingCashflow", "OperatingCashFlow"]);
     const revenueTTM = firstNumber(data, ["RevenueTTM"]);
-    const cashflowMargin = operatingCashflow !== null && revenueTTM !== null && revenueTTM > 0
-      ? (operatingCashflow / revenueTTM) * 100
-      : null;
-    const forwardPe = firstNumber(data, ["ForwardPE"]);
-    const trailingPe = firstNumber(data, ["PERatio", "TrailingPE"]);
+    const cashflowMargin =
+      operatingCashflow !== null && revenueTTM !== null && revenueTTM > 0
+        ? (operatingCashflow / revenueTTM) * 100
+        : null;
 
     return {
       score: confidenceAdjustedScore,
@@ -5768,7 +5862,6 @@
       valuation,
       risk,
       neutral: false,
-      etfScore: false,
       dataQuality: quality,
       metrics: {
         revenueGrowth,
@@ -5790,8 +5883,7 @@
         interestCoverage: getInterestCoverage(data),
         dilutionGap: getDilutionGap(data),
         peg: safeNumber(data["PEGRatio"]),
-        forwardPe,
-        pe: trailingPe,
+        pe: firstNumber(data, ["PERatio", "TrailingPE"]),
         ps: safeNumber(data["PriceToSalesRatioTTM"]),
         evEbitda: safeNumber(data["EVToEBITDA"]),
         beta: safeNumber(data["Beta"])
@@ -6363,7 +6455,7 @@
 
           if (result.neutral) {
             reason = result.etfScore
-              ? assetTypeLabel(assetType) + " / ETF 별도평가 점수 " + result.score.toFixed(0) + " (기업 펀더멘털과 직접 비교하지 않음)"
+              ? assetTypeLabel(assetType) + " / ETF 역할·분산 적합성 점수 " + result.score.toFixed(0)
               : assetTypeLabel(assetType) + " / 개별기업 펀더멘털 중립점수 50";
           } else {
 
@@ -6604,73 +6696,23 @@
 
 
   /* =========================================================
-     시세 조회 v2
-     - Twelve Data 우선
-     - 10분 가격 캐시 우선 사용
-     - Basic 8 credits/minute에 맞춰 최대 8종목씩 요청
-     - HTTP 429는 1회 재시도 후 Alpha Vantage를 제한적으로 fallback
-     - Alpha Vantage fallback은 한 번의 업데이트에서 최대 5종목만 사용
-       (무료 25 requests/day를 보호하기 위함)
+     시세 조회
+     - Twelve Data 배치 API 사용
+     - Basic 무료 플랜의 분당 8 credits 제한에 맞춰 8종목씩 배치
+     - 30종목 포트폴리오는 4회 요청으로 처리
+     - 배치 사이 61초 대기하여 429 방지
+     - Alpha Vantage는 재무/추천 데이터에만 사용
   ========================================================= */
 
-  async function getAlphaDailyPrice(ticker) {
-    const apiKey = localStorage.getItem(API_KEY_STORAGE);
-    if (!apiKey) throw new Error("Alpha Vantage API Key가 없습니다.");
-
-    const url = "https://www.alphavantage.co/query" +
-      "?function=TIME_SERIES_DAILY" +
-      "&symbol=" + encodeURIComponent(ticker) +
-      "&outputsize=compact" +
-      "&apikey=" + encodeURIComponent(apiKey);
-
-    const response = await fetch(url);
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      throw new Error(`Alpha Vantage HTTP ${response.status}`);
-    }
-    if (data && data["Note"]) {
-      throw new Error("Alpha Vantage API 요청 제한");
-    }
-    if (data && data["Error Message"]) {
-      throw new Error("Alpha Vantage: 시세 데이터를 찾을 수 없습니다.");
-    }
-
-    const series = data && data["Time Series (Daily)"];
-    if (!series || typeof series !== "object") {
-      throw new Error("Alpha Vantage 일봉 데이터가 없습니다.");
-    }
-
-    const dates = Object.keys(series).sort().reverse();
-    for (const date of dates) {
-      const close = Number(series[date] && series[date]["4. close"]);
-      if (Number.isFinite(close) && close > 0) {
-        return {
-          price: close,
-          date,
-          status: "CLOSE",
-          label: "최근 종가 (Alpha Vantage)",
-          source: "alphavantage"
-        };
-      }
-    }
-
-    throw new Error("Alpha Vantage 유효 종가가 없습니다.");
-  }
-
-  async function requestTwelveBatch(chunk, apiKey) {
-    const url = "https://api.twelvedata.com/price" +
-      "?symbol=" + encodeURIComponent(chunk.join(",")) +
-      "&apikey=" + encodeURIComponent(apiKey);
-
-    const response = await fetch(url);
-    const data = await response.json().catch(() => ({}));
-    return { response, data };
-  }
-
   async function getBatchPrices(tickers, statusElement) {
-    const twelveKey = localStorage.getItem(TWELVE_DATA_KEY_STORAGE);
-    if (!twelveKey) throw new Error("Twelve Data API Key가 없습니다. 데이터 설정에서 시세용 Key를 저장하세요.");
+
+    const apiKey = localStorage.getItem(TWELVE_DATA_KEY_STORAGE);
+
+    if (!apiKey) {
+      const error = new Error("Twelve Data API Key가 없습니다. 데이터 설정에서 시세용 Key를 저장하세요.");
+      error.code = "NO_TWELVE_KEY";
+      throw error;
+    }
 
     const uniqueTickers = [...new Set(
       tickers
@@ -6678,62 +6720,31 @@
         .filter(t => /^[A-Z0-9.\-]{1,10}$/.test(t))
     )];
 
+    if (!uniqueTickers.length) return { results: {}, requested: 0, calls: 0, failedBatches: 0 };
+
     const results = {};
-    const freshCutoff = Date.now() - (10 * 60 * 1000);
-    const staleTickers = [];
-
-    uniqueTickers.forEach(ticker => {
-      const cached = priceCache[ticker];
-      const fetchedAt = cached && new Date(cached.fetchedAt || cached.updatedAt || 0).getTime();
-      const cachedPrice = Number(cached && cached.price);
-      if (Number.isFinite(cachedPrice) && cachedPrice > 0 && Number.isFinite(fetchedAt) && fetchedAt >= freshCutoff) {
-        results[ticker] = {
-          price: cachedPrice,
-          date: cached.sourceDate || cached.date || new Date(fetchedAt).toISOString(),
-          status: cached.status || "CACHE",
-          label: cached.label || "캐시 가격",
-          source: cached.source || "cache"
-        };
-      } else {
-        staleTickers.push(ticker);
-      }
-    });
-
-    if (!staleTickers.length) {
-      if (statusElement) statusElement.textContent = `시세 캐시 사용 — ${uniqueTickers.length}/${uniqueTickers.length}개 (API 요청 0회)`;
-      return { results, requested: uniqueTickers.length, calls: 0, failedBatches: 0, cacheHits: uniqueTickers.length, alphaFallbacks: 0 };
-    }
-
     const BATCH_SIZE = 8;
     const total = uniqueTickers.length;
+    let completed = 0;
     let calls = 0;
     let failedBatches = 0;
-    let alphaFallbacks = 0;
-    const maxAlphaFallbacks = 5;
-    let completed = 0;
 
-    for (let i = 0; i < staleTickers.length; i += BATCH_SIZE) {
-      const chunk = staleTickers.slice(i, i + BATCH_SIZE);
-      const batchEnd = i + chunk.length;
+    for (let i = 0; i < total; i += BATCH_SIZE) {
+      const chunk = uniqueTickers.slice(i, i + BATCH_SIZE);
+      const batchEnd = Math.min(i + chunk.length, total);
       let batchOk = false;
-      let twelveError = null;
 
-      const updateProgress = (message) => {
-        if (statusElement) statusElement.textContent = message;
-      };
-
-      updateProgress(`시세 조회 중 — 신규 ${i + 1}~${batchEnd}/${staleTickers.length} · 전체 ${Object.keys(results).length}/${total}`);
+      if (statusElement) {
+        statusElement.textContent = `시세 조회 중 — ${i + 1}~${batchEnd}/${total} 종목 (배치 ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(total / BATCH_SIZE)})`;
+      }
 
       try {
+        const url = "https://api.twelvedata.com/price" +
+          "?symbol=" + encodeURIComponent(chunk.join(",")) +
+          "&apikey=" + encodeURIComponent(apiKey);
         calls++;
-        let { response, data } = await requestTwelveBatch(chunk, twelveKey);
-
-        if (response.status === 429) {
-          updateProgress(`Twelve Data 429 — ${chunk.length}종목, 61초 후 1회 재시도합니다.`);
-          await sleep(61000);
-          calls++;
-          ({ response, data } = await requestTwelveBatch(chunk, twelveKey));
-        }
+        const response = await fetch(url);
+        const data = await response.json().catch(() => ({}));
 
         if (!response.ok) {
           throw new Error(`Twelve Data HTTP ${response.status}${data && data.message ? " — " + data.message : ""}`);
@@ -6747,60 +6758,51 @@
           if (!row || typeof row !== "object") return;
           const price = Number(row.price);
           if (Number.isFinite(price) && price > 0) {
-            const key = String(symbol).toUpperCase();
-            results[key] = {
+            results[String(symbol).toUpperCase()] = {
               price,
               date: new Date().toISOString(),
               status: "LIVE",
-              label: "현재가 (Twelve Data)",
+              label: "현재가",
               source: "twelvedata"
             };
           }
         });
 
+        if (total === 1 && data && data.price) {
+          const price = Number(data.price);
+          if (Number.isFinite(price) && price > 0) {
+            results[uniqueTickers[0]] = { price, date: new Date().toISOString(), status: "LIVE", label: "현재가", source: "twelvedata" };
+          }
+        }
         batchOk = true;
       } catch (error) {
-        twelveError = error;
         failedBatches++;
         console.error("Twelve Data batch failed", chunk, error);
-      }
-
-      // 부분 실패 포함: 이번 배치에서 아직 가격을 못 받은 종목만 Alpha fallback.
-      const missing = chunk.filter(ticker => !results[ticker]);
-      for (const ticker of missing) {
-        if (alphaFallbacks >= maxAlphaFallbacks) break;
-        if (!localStorage.getItem(API_KEY_STORAGE)) break;
-
-        try {
-          updateProgress(`보조 시세 조회 — ${ticker} (Alpha Vantage) · 남은 보조 ${maxAlphaFallbacks - alphaFallbacks}회`);
-          alphaFallbacks++;
-          results[ticker] = await getAlphaDailyPrice(ticker);
-        } catch (fallbackError) {
-          console.error("Alpha fallback failed", ticker, fallbackError);
+        if (statusElement) {
+          statusElement.textContent = `시세 조회 ${i + 1}~${batchEnd}/${total} 실패 — 다음 배치를 계속합니다`;
         }
       }
 
-      completed = Math.min(i + chunk.length, staleTickers.length);
-      updateProgress(`시세 조회 진행 — 신규 ${completed}/${staleTickers.length} · 전체 성공 ${Object.keys(results).length}/${total}` + (batchOk ? "" : " · Twelve Data 실패/보조조회 시도"));
+      completed = batchEnd;
+      if (statusElement) {
+        const received = Object.keys(results).length;
+        statusElement.textContent = `시세 조회 진행 ${completed}/${total} — 성공 ${received}개` + (batchOk ? "" : " · 이번 배치 실패");
+      }
 
-      if (completed < staleTickers.length) {
+      if (completed < total) {
         let remaining = 60;
         while (remaining > 0) {
-          updateProgress(`시세 ${completed}/${staleTickers.length} 처리 · 다음 8종목까지 ${remaining}초 · 성공 ${Object.keys(results).length}개`);
+          if (statusElement) {
+            const received = Object.keys(results).length;
+            statusElement.textContent = `시세 조회 ${completed}/${total} 완료 · 다음 8종목까지 ${remaining}초 대기 · 성공 ${received}개`;
+          }
           await sleep(1000);
           remaining--;
         }
       }
     }
 
-    return {
-      results,
-      requested: total,
-      calls,
-      failedBatches,
-      cacheHits: total - staleTickers.length,
-      alphaFallbacks
-    };
+    return { results, requested: total, calls, failedBatches };
   }
 
   /* =========================================================
@@ -6808,6 +6810,7 @@
   ========================================================= */
 
   async function refreshPrices() {
+
     if (holdings.length === 0) { alert("먼저 종목을 추가하세요."); return; }
     if (!localStorage.getItem(TWELVE_DATA_KEY_STORAGE)) { alert("데이터 설정에서 Twelve Data API Key를 먼저 저장하세요."); return; }
 
@@ -6824,16 +6827,12 @@
     let failed = 0;
     let calls = 0;
     let failedBatches = 0;
-    let alphaFallbacks = 0;
-    let cacheHits = 0;
 
     try {
       const response = await getBatchPrices(tickers, status);
       const results = response.results || {};
       calls = response.calls || 0;
       failedBatches = response.failedBatches || 0;
-      alphaFallbacks = response.alphaFallbacks || 0;
-      cacheHits = response.cacheHits || 0;
 
       activeHoldings.forEach(item => {
         const ticker = item.ticker.toUpperCase();
@@ -6850,16 +6849,7 @@
         item.priceStatus = result.status;
         item.priceLabel = result.label;
         item.priceSource = result.source;
-        priceCache[ticker] = {
-          price: result.price,
-          fetchedAt: item.updatedAt,
-          updatedAt: item.updatedAt,
-          sourceDate: result.date,
-          date: result.date,
-          status: result.status,
-          label: result.label,
-          source: result.source
-        };
+        priceCache[ticker] = { price: result.price, fetchedAt: item.updatedAt, updatedAt: item.updatedAt, sourceDate: result.date, date: result.date, status: result.status, label: result.label, source: result.source };
         success++;
       });
     } catch (error) {
@@ -6879,11 +6869,82 @@
 
     status.className = success > 0 ? "status" : "status negative";
     const errorItems = holdings.filter(item => item.priceError).slice(0, 3).map(item => item.ticker + " — " + item.priceError);
-    let message = `시세 업데이트 완료 — 성공 ${success}개 / 실패 ${failed}개 / Twelve Data ${calls}회 / 캐시 ${cacheHits}개 / Alpha 보조 ${alphaFallbacks}회`;
+    let message = `시세 업데이트 완료 — 성공 ${success}개 / 실패 ${failed}개 / API 요청 ${calls}회`;
     if (failedBatches) message += ` / 실패 배치 ${failedBatches}개`;
     if (errorItems.length) message += "\n" + errorItems.join("\n");
     status.textContent = message;
     if (button) button.disabled = false;
+  }
+
+  /* =========================================================
+     포트폴리오 표 복사 / 다운로드
+  ========================================================= */
+  function buildPortfolioExportRows() {
+    const rows = [];
+    const sorted = getSortedHoldings ? getSortedHoldings() : [...holdings];
+    const totalValue = sorted.reduce((sum, item) => {
+      const price = Number(item.currentPrice);
+      const qty = Number(item.quantity);
+      return sum + (Number.isFinite(price) && Number.isFinite(qty) ? price * qty : 0);
+    }, 0);
+    const cash = Number(localStorage.getItem(CASH_BALANCE_KEY) || 0);
+    const totalAssets = totalValue + (Number.isFinite(cash) ? cash : 0);
+    const safeTotal = totalAssets > 0 ? totalAssets : 0;
+
+    rows.push(['티커','종목명','보유수량','평균매수가','현재가','평가금액','손익','수익률','현재비중','추천점수','추천비중','목표비중','비중차이','목표금액','리밸런싱금액']);
+    sorted.forEach(item => {
+      const qty = Number(item.quantity) || 0;
+      const avg = Number(item.avgPrice) || 0;
+      const price = Number(item.currentPrice);
+      const value = Number.isFinite(price) ? price * qty : 0;
+      const cost = avg * qty;
+      const pnl = value - cost;
+      const ret = cost > 0 ? pnl / cost * 100 : 0;
+      const currentWeight = safeTotal > 0 ? value / safeTotal * 100 : 0;
+      const rec = Number.isFinite(Number(item.recommendedWeight)) ? Number(item.recommendedWeight) : 0;
+      const target = Number.isFinite(Number(item.targetWeight)) ? Number(item.targetWeight) : 0;
+      const targetValue = safeTotal * target / 100;
+      rows.push([item.ticker || '', item.companyName || '', qty, avg, Number.isFinite(price) ? price : '', value, pnl, ret, currentWeight, Number.isFinite(Number(item.recommendationScore)) ? Number(item.recommendationScore) : '', rec, target, target-currentWeight, targetValue, targetValue-value]);
+    });
+    const targetCash = Number(localStorage.getItem(TARGET_CASH_KEY) || DEFAULT_TARGET_CASH);
+    const targetUnallocated = Number(localStorage.getItem(TARGET_UNALLOCATED_KEY) || DEFAULT_TARGET_UNALLOCATED);
+    rows.push(['CASH','현금', '', '', '', Number.isFinite(cash) ? cash : 0, '', '', safeTotal > 0 ? cash/safeTotal*100 : 0, '', '', targetCash, targetCash-(safeTotal>0?cash/safeTotal*100:0), safeTotal*targetCash/100, safeTotal*targetCash/100-cash]);
+    rows.push(['UNALLOCATED','미배분', '', '', '', '', '', '', '', '', '', targetUnallocated, targetUnallocated, safeTotal*targetUnallocated/100, '']);
+    rows.push(['TOTAL','총자산', '', '', '', safeTotal, '', '', 100, '', '', targetCash+targetUnallocated, '', '', '']);
+    return rows;
+  }
+
+  function csvEscape(value) {
+    const text = value === null || value === undefined ? '' : String(value);
+    return /[",\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+  }
+
+  function copyPortfolioTable() {
+    const text = buildPortfolioExportRows().map(row => row.map(csvEscape).join('\t')).join('\n');
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(() => alert('포트폴리오 표를 클립보드에 복사했습니다.')).catch(() => fallbackCopy(text));
+    } else {
+      fallbackCopy(text);
+    }
+  }
+
+  function fallbackCopy(text) {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.style.position = 'fixed'; area.style.left = '-9999px';
+    document.body.appendChild(area); area.focus(); area.select();
+    try { document.execCommand('copy'); alert('포트폴리오 표를 클립보드에 복사했습니다.'); }
+    catch (e) { alert('표 복사에 실패했습니다.'); }
+    finally { document.body.removeChild(area); }
+  }
+
+  function downloadPortfolioTable() {
+    const csv = '\ufeff' + buildPortfolioExportRows().map(row => row.map(csvEscape).join(',')).join('\r\n');
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'portfolio_manager_' + new Date().toISOString().slice(0,10) + '.csv';
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
   }
 
   /* =========================================================
@@ -7113,40 +7174,5 @@
   setTimeout(initRecommendationModeUI, 0);
 </script>
 
-<script>
-(function(){
-  function copyPortfolioTable(){
-    try {
-      const rows = [];
-      const table = document.querySelector('table');
-      if(table){
-        table.querySelectorAll('tr').forEach(tr=>{
-          const cells=[...tr.querySelectorAll('th,td')].map(c=>c.innerText.replace(/\s+/g,' ').trim());
-          if(cells.length) rows.push(cells.join('\t'));
-        });
-      }
-      if(!rows.length){
-        const data = (typeof window.buildExportRows==='function') ? window.buildExportRows() : null;
-        if(Array.isArray(data)) data.forEach(r=>rows.push(r.map(v=>String(v??'')).join('\t')));
-      }
-      if(!rows.length){ alert('복사할 포트폴리오 표가 없습니다.'); return; }
-      const text=rows.join('\n');
-      navigator.clipboard.writeText(text).then(()=>alert('📋 포트폴리오 표를 클립보드에 복사했습니다.\n삼성 노트, Excel, Google Sheets에 붙여넣으세요.')).catch(()=>{
-        const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
-        alert('📋 포트폴리오 표를 복사했습니다.');
-      });
-    } catch(e){ alert('표 복사에 실패했습니다.'); }
-  }
-  window.copyPortfolioTable=copyPortfolioTable;
-  document.addEventListener('DOMContentLoaded',()=>{
-    const btn=document.createElement('button');
-    btn.type='button'; btn.textContent='📋 표 복사';
-    btn.onclick=copyPortfolioTable;
-    btn.style.cssText='margin:8px 0;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:#222;color:#fff;font-size:14px;cursor:pointer;';
-    const download=[...document.querySelectorAll('button')].find(b=>/표 다운로드|다운로드/.test(b.textContent));
-    if(download) download.insertAdjacentElement('afterend',btn); else document.body.insertBefore(btn,document.body.firstChild);
-  });
-})();
-</script>
 </body>
 </html>
