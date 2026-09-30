@@ -5890,345 +5890,201 @@
      30% 상한으로 100%를 채울 수 없으면 미배분을 현금 영역으로 유지합니다.
   ========================================================= */
 
-  function convertScoresToWeights(
-    scoredItems
-  ) {
+  function convertScoresToWeights(scoredItems) {
+    if (!scoredItems || scoredItems.length === 0) return;
 
-    if (
-      scoredItems.length === 0
-    ) {
+    // 현금 + 미배분을 제외한 "주식/ETF에 배분할 수 있는 비중"
+    const investable = Math.max(
+      0,
+      100 - getTargetCashPercent() - getTargetUnallocatedPercent()
+    );
 
+    const totalScore = scoredItems.reduce(
+      (sum, item) => sum + Math.max(0, Number(item.score) || 0),
+      0
+    );
+
+    // 점수가 없으면 동일비중으로 시작
+    if (totalScore <= 0) {
+      const equal = investable / scoredItems.length;
+      scoredItems.forEach(item => {
+        item.weight = Math.min(
+          equal,
+          getRecommendationMaxWeight(item, 30)
+        );
+      });
+      normalizeRecommendationWeights(scoredItems, investable, 30);
       return;
-
     }
 
+    scoredItems.forEach(item => {
+      item.weight =
+        (Math.max(0, Number(item.score) || 0) / totalScore) * investable;
+    });
 
-    const totalScore =
-      scoredItems.reduce(
-        (
-          sum,
-          item
-        ) =>
-          sum +
-          item.score,
+    capAndRedistributeRecommendationWeights(scoredItems, investable, 30);
+  }
+
+  // ETF/개별주 최대비중을 적용한 뒤에도
+  // 최종 추천비중의 합계가 반드시 "투자자산 배분 가능비중"을 넘지 않도록 합니다.
+  function capAndRedistributeRecommendationWeights(scoredItems, investable, fallbackMax) {
+    let excess = 0;
+
+    scoredItems.forEach(item => {
+      const maxWeight = getRecommendationMaxWeight(item, fallbackMax);
+      if (item.weight > maxWeight) {
+        excess += item.weight - maxWeight;
+        item.weight = maxWeight;
+      }
+    });
+
+    // 상한에 걸려 생긴 초과분을 아직 상한에 도달하지 않은 종목에 재배분
+    for (let pass = 0; pass < 30 && excess > 0.000001; pass++) {
+      const available = scoredItems.filter(item =>
+        item.weight <
+        getRecommendationMaxWeight(item, fallbackMax) - 0.000001
+      );
+
+      if (!available.length) break;
+
+      const availableScore = available.reduce(
+        (sum, item) => sum + Math.max(0, Number(item.score) || 0),
         0
       );
 
+      let distributed = 0;
 
-    if (
-      totalScore <= 0
-    ) {
+      available.forEach(item => {
+        const share =
+          availableScore > 0
+            ? Math.max(0, Number(item.score) || 0) / availableScore
+            : 1 / available.length;
 
-      const investable = Math.max(0, 100 - getTargetCashPercent() - getTargetUnallocatedPercent());
-      const equal =
-        investable /
-        scoredItems.length;
+        const requested = excess * share;
+        const room =
+          getRecommendationMaxWeight(item, fallbackMax) - item.weight;
 
+        const actual = Math.min(room, requested);
 
-      scoredItems.forEach(
-        item => {
+        item.weight += actual;
+        distributed += actual;
+      });
 
-          item.weight =
-            equal;
+      excess -= distributed;
 
-        }
-      );
-
-
-      return;
-
+      if (distributed <= 0.000001) break;
     }
 
+    normalizeRecommendationWeights(scoredItems, investable, fallbackMax);
+  }
 
-    scoredItems.forEach(
-      item => {
+  function normalizeRecommendationWeights(scoredItems, investable, fallbackMax) {
+    // 먼저 숫자/상한을 다시 정리
+    scoredItems.forEach(item => {
+      const maxWeight = getRecommendationMaxWeight(item, fallbackMax);
+      item.weight = Math.max(
+        0,
+        Math.min(maxWeight, Number(item.weight) || 0)
+      );
+    });
 
-        item.weight =
-          (
-            item.score /
-            totalScore
-          ) *
-          Math.max(0, 100 - getTargetCashPercent() - getTargetUnallocatedPercent());
-
-      }
+    // 반올림 전 합계를 계산한다.
+    let total = scoredItems.reduce(
+      (sum, item) => sum + item.weight,
+      0
     );
 
+    // 투자 가능 비중을 초과하면 비례 축소한다.
+    if (total > investable + 0.000001 && total > 0) {
+      const factor = investable / total;
+      scoredItems.forEach(item => {
+        item.weight *= factor;
+      });
+      total = investable;
+    }
 
-    const MAX_WEIGHT =
-      30;
+    // 소수점 2자리 반올림
+    scoredItems.forEach(item => {
+      item.weight = Number(item.weight.toFixed(2));
+    });
 
-
-    let excess =
-      0;
-
-
-    scoredItems.forEach(
-      item => {
-
-        const itemMax = getRecommendationMaxWeight(item, MAX_WEIGHT);
-        if (item.weight > itemMax) {
-          excess += item.weight - itemMax;
-          item.weight = itemMax;
-        }
-
-      }
+    total = scoredItems.reduce(
+      (sum, item) => sum + item.weight,
+      0
     );
 
+    // ★ 핵심 수정:
+    // 기존 코드는 여기서 100 - roundedTotal을 사용하여
+    // 목표 현금/미배분 비중까지 다시 종목에 넣어버렸습니다.
+    // 반드시 "investable - roundedTotal"만 보정해야 합니다.
+    let difference = Number(
+      (investable - total).toFixed(2)
+    );
 
-    if (
-      excess > 0
-    ) {
+    if (Math.abs(difference) >= 0.01) {
+      const candidates = [...scoredItems].sort(
+        (a, b) =>
+          (Number(b.score) || 0) - (Number(a.score) || 0)
+      );
 
-      let remaining =
-        excess;
+      for (const item of candidates) {
+        if (Math.abs(difference) < 0.01) break;
 
-
-      for (
-        let pass = 0;
-        pass < 10 &&
-        remaining > 0.0001;
-        pass++
-      ) {
-
-        const available =
-          scoredItems.filter(
-            item =>
-              item.weight <
-              getRecommendationMaxWeight(item, MAX_WEIGHT) -
-              0.0001
-          );
-
-
-        if (
-          available.length === 0
-        ) {
-
-          break;
-
-        }
-
-
-        const availableScore =
-          available.reduce(
-            (
-              sum,
-              item
-            ) =>
-              sum +
-              item.score,
-            0
-          );
-
-
-        let distributed =
-          0;
-
-
-        available.forEach(
-          item => {
-
-            const add =
-              availableScore > 0
-
-                ? remaining *
-                  (
-                    item.score /
-                    availableScore
-                  )
-
-                : remaining /
-                  available.length;
-
-
-            const room =
-              getRecommendationMaxWeight(item, MAX_WEIGHT) -
-              item.weight;
-
-
-            const actualAdd =
-              Math.min(
-                room,
-                add
-              );
-
-
-            item.weight +=
-              actualAdd;
-
-
-            distributed +=
-              actualAdd;
-
-          }
+        const maxWeight = getRecommendationMaxWeight(
+          item,
+          fallbackMax
         );
 
-
-        remaining -=
-          distributed;
-
-
-        if (
-          distributed <= 0.0001
-        ) {
-
-          break;
-
-        }
-
-      }
-
-    }
-
-
-    let roundedTotal =
-      0;
-
-
-    scoredItems.forEach(
-      item => {
-
-        item.weight =
-          Number(
-            item.weight.toFixed(
-              2
-            )
+        if (difference > 0) {
+          const room = Math.max(
+            0,
+            maxWeight - item.weight
           );
 
+          const add = Math.min(
+            room,
+            difference
+          );
 
-        roundedTotal +=
-          item.weight;
+          item.weight = Number(
+            (item.weight + add).toFixed(2)
+          );
 
+          difference = Number(
+            (difference - add).toFixed(2)
+          );
+        } else {
+          const remove = Math.min(
+            item.weight,
+            Math.abs(difference)
+          );
+
+          item.weight = Number(
+            (item.weight - remove).toFixed(2)
+          );
+
+          difference = Number(
+            (difference + remove).toFixed(2)
+          );
+        }
       }
+    }
+
+    // 마지막 안전장치: 절대로 투자 가능 비중을 넘기지 않는다.
+    const finalTotal = scoredItems.reduce(
+      (sum, item) => sum + item.weight,
+      0
     );
 
+    if (finalTotal > investable + 0.000001 && finalTotal > 0) {
+      const factor = investable / finalTotal;
 
-    let difference =
-      Number(
-        (
-          100 -
-          roundedTotal
-        ).toFixed(
-          2
-        )
-      );
-
-
-    if (
-      Math.abs(
-        difference
-      ) >= 0.01
-    ) {
-
-      const candidates =
-        scoredItems
-          .filter(
-            item =>
-              item.weight <
-              MAX_WEIGHT ||
-              difference < 0
-          )
-          .sort(
-            (
-              a,
-              b
-            ) =>
-              b.score -
-              a.score
-          );
-
-
-      for (
-        const item of candidates
-      ) {
-
-        if (
-          Math.abs(
-            difference
-          ) < 0.01
-        ) {
-
-          break;
-
-        }
-
-
-        if (
-          difference > 0
-        ) {
-
-          const room =
-            MAX_WEIGHT -
-            item.weight;
-
-
-          const add =
-            Math.min(
-              room,
-              difference
-            );
-
-
-          item.weight =
-            Number(
-              (
-                item.weight +
-                add
-              ).toFixed(
-                2
-              )
-            );
-
-
-          difference =
-            Number(
-              (
-                difference -
-                add
-              ).toFixed(
-                2
-              )
-            );
-
-        }
-
-        else {
-
-          const remove =
-            Math.min(
-              item.weight,
-              Math.abs(
-                difference
-              )
-            );
-
-
-          item.weight =
-            Number(
-              (
-                item.weight -
-                remove
-              ).toFixed(
-                2
-              )
-            );
-
-
-          difference =
-            Number(
-              (
-                difference +
-                remove
-              ).toFixed(
-                2
-              )
-            );
-
-        }
-
-      }
-
+      scoredItems.forEach(item => {
+        item.weight = Number(
+          (item.weight * factor).toFixed(2)
+        );
+      });
     }
-
   }
 
 
@@ -6346,40 +6202,46 @@
   }
 
   function convertCustomScoresToWeights(scoredItems, settings) {
-    const investable = Math.max(0, 100 - getTargetCashPercent() - getTargetUnallocatedPercent());
-    if (!scoredItems.length) return;
-    const totalScore = scoredItems.reduce((sum, item) => sum + item.score, 0);
+    const investable = Math.max(
+      0,
+      100 - getTargetCashPercent() - getTargetUnallocatedPercent()
+    );
+
+    if (!scoredItems || !scoredItems.length) return;
+
+    const totalScore = scoredItems.reduce(
+      (sum, item) => sum + Math.max(0, Number(item.score) || 0),
+      0
+    );
+
     if (totalScore <= 0) {
       const equal = investable / scoredItems.length;
-      scoredItems.forEach(item => item.weight = Math.min(equal, settings.maxWeight));
+
+      scoredItems.forEach(item => {
+        item.weight = Math.min(
+          equal,
+          getRecommendationMaxWeight(item, settings.maxWeight)
+        );
+      });
+
+      capAndRedistributeRecommendationWeights(
+        scoredItems,
+        investable,
+        settings.maxWeight
+      );
       return;
     }
+
     scoredItems.forEach(item => {
-      item.weight = (item.score / totalScore) * investable;
+      item.weight =
+        (Math.max(0, Number(item.score) || 0) / totalScore) * investable;
     });
-    let excess = 0;
-    scoredItems.forEach(item => {
-      const itemMax = getRecommendationMaxWeight(item, settings.maxWeight);
-      if (item.weight > itemMax) {
-        excess += item.weight - itemMax;
-        item.weight = itemMax;
-      }
-    });
-    for (let pass = 0; pass < 20 && excess > 0.0001; pass++) {
-      const available = scoredItems.filter(item => item.weight < getRecommendationMaxWeight(item, settings.maxWeight) - 0.0001);
-      if (!available.length) break;
-      const availableScore = available.reduce((sum, item) => sum + item.score, 0);
-      let distributed = 0;
-      available.forEach(item => {
-        const add = availableScore > 0 ? excess * (item.score / availableScore) : excess / available.length;
-        const room = getRecommendationMaxWeight(item, settings.maxWeight) - item.weight;
-        const actual = Math.min(room, add);
-        item.weight += actual;
-        distributed += actual;
-      });
-      excess -= distributed;
-      if (distributed <= 0.0001) break;
-    }
+
+    capAndRedistributeRecommendationWeights(
+      scoredItems,
+      investable,
+      settings.maxWeight
+    );
   }
 
   /* =========================================================
