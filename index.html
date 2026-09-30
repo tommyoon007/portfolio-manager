@@ -70,6 +70,53 @@
       margin-bottom: 14px;
     }
 
+    .portfolio-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .portfolio-sort-control {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11px;
+      color: #8b96a8;
+      font-weight: 600;
+    }
+
+    .portfolio-sort-control select {
+      min-width: 116px;
+      padding: 7px 28px 7px 9px;
+      border: 1px solid #2b3545;
+      border-radius: 8px;
+      background: #111720;
+      color: #e8edf4;
+      font-size: 11px;
+      outline: none;
+    }
+
+    .portfolio-sort-control select:focus {
+      border-color: #4b6b91;
+    }
+
+    @media (max-width: 700px) {
+      .portfolio-header-row {
+        align-items: flex-start;
+      }
+
+      .portfolio-sort-control {
+        width: 100%;
+        justify-content: flex-end;
+      }
+
+      .portfolio-sort-control select {
+        min-width: 130px;
+      }
+    }
+
     .summary-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -1209,8 +1256,18 @@
 
   <div class="card">
 
-    <div class="card-title">
-      📈 Portfolio
+    <div class="card-title portfolio-header-row">
+      <span>📈 Portfolio</span>
+
+      <label class="portfolio-sort-control">
+        <span>정렬</span>
+        <select id="portfolioSort" onchange="setPortfolioSort(this.value)">
+          <option value="current">현재 비중순</option>
+          <option value="target">목표 비중순</option>
+          <option value="recommended">추천 비중순</option>
+          <option value="ticker">티커순</option>
+        </select>
+      </label>
     </div>
 
     <div class="summary-grid">
@@ -1596,6 +1653,9 @@
 
   const FUNDAMENTAL_CACHE_KEY =
     "portfolio_manager_fundamental_cache_v1";
+
+  const SORT_ORDER_STORAGE =
+    "portfolio_manager_sort_order_v1";
 
 
   /* =========================================================
@@ -3401,6 +3461,92 @@
 
 
   /* =========================================================
+     포트폴리오 정렬
+     - 화면 표시 순서만 변경하며 holdings 데이터 자체의 순서는 유지
+  ========================================================= */
+
+  function getPortfolioSortOrder() {
+    return localStorage.getItem(SORT_ORDER_STORAGE) || "current";
+  }
+
+  function setPortfolioSort(order) {
+    const allowed = ["current", "target", "recommended", "ticker"];
+    const next = allowed.includes(order) ? order : "current";
+
+    localStorage.setItem(SORT_ORDER_STORAGE, next);
+
+    const select = document.getElementById("portfolioSort");
+    if (select) {
+      select.value = next;
+    }
+
+    renderPortfolio();
+  }
+
+  function getSortedHoldings(portfolio) {
+    const list = [...holdings];
+    const order = getPortfolioSortOrder();
+
+    const currentWeight = (item) => {
+      const market = getHoldingMarketData(item);
+      if (!market.hasPrice || !portfolio || portfolio.totalValue <= 0) {
+        return -Infinity;
+      }
+      return (market.value / portfolio.totalValue) * 100;
+    };
+
+    list.sort((a, b) => {
+      if (order === "ticker") {
+        return String(a.ticker || "").localeCompare(
+          String(b.ticker || ""),
+          "en",
+          { sensitivity: "base" }
+        );
+      }
+
+      if (order === "target") {
+        const diff =
+          (Number(b.targetWeight) || 0) -
+          (Number(a.targetWeight) || 0);
+
+        if (Math.abs(diff) > 0.0001) return diff;
+      }
+
+      if (order === "recommended") {
+        const aWeight =
+          a.recommendedWeight === null ||
+          a.recommendedWeight === undefined
+            ? -Infinity
+            : Number(a.recommendedWeight);
+
+        const bWeight =
+          b.recommendedWeight === null ||
+          b.recommendedWeight === undefined
+            ? -Infinity
+            : Number(b.recommendedWeight);
+
+        const diff = bWeight - aWeight;
+
+        if (Math.abs(diff) > 0.0001) return diff;
+      }
+
+      if (order === "current") {
+        const diff = currentWeight(b) - currentWeight(a);
+        if (Math.abs(diff) > 0.0001) return diff;
+      }
+
+      // 값이 같은 경우에는 티커순으로 고정해 화면이 흔들리지 않게 합니다.
+      return String(a.ticker || "").localeCompare(
+        String(b.ticker || ""),
+        "en",
+        { sensitivity: "base" }
+      );
+    });
+
+    return list;
+  }
+
+  /* =========================================================
      모바일 포트폴리오 출력
   ========================================================= */
 
@@ -3425,8 +3571,11 @@
     const portfolio =
       calculatePortfolio();
 
+    const sortedHoldings =
+      getSortedHoldings(portfolio);
+
     container.innerHTML =
-      holdings.map(item => {
+      sortedHoldings.map(item => {
 
         const market =
           getHoldingMarketData(item);
@@ -3679,6 +3828,13 @@
 
   function renderPortfolio() {
 
+    const sortSelect =
+      document.getElementById("portfolioSort");
+
+    if (sortSelect) {
+      sortSelect.value = getPortfolioSortOrder();
+    }
+
     const body =
       document.getElementById(
         "portfolioBody"
@@ -3722,8 +3878,11 @@
       calculatePortfolio();
 
 
+    const sortedHoldings =
+      getSortedHoldings(portfolio);
+
     body.innerHTML =
-      holdings.map(
+      sortedHoldings.map(
         item => {
 
           const market =
