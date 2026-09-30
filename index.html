@@ -586,6 +586,18 @@
       justify-content: flex-end;
     }
 
+    .portfolio-export-actions {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+      margin-top: 2px;
+    }
+
+    .portfolio-export-actions button {
+      width: 100%;
+    }
+
     .portfolio-actions button {
       padding: 8px 11px;
       font-size: 11px;
@@ -653,6 +665,10 @@
         width: 100%;
         display: grid;
         grid-template-columns: 1fr 1fr;
+      }
+
+      .portfolio-export-actions {
+        grid-column: 1 / -1;
       }
 
       .portfolio-actions button {
@@ -1516,6 +1532,23 @@
         >
           🧠 추천 계산
         </button>
+
+        <div class="portfolio-export-actions">
+          <button
+            type="button"
+            class="button-secondary"
+            onclick="copyPortfolioTable()"
+          >
+            📋 표 복사
+          </button>
+          <button
+            type="button"
+            class="button-secondary"
+            onclick="downloadPortfolioTable()"
+          >
+            📥 표 다운로드
+          </button>
+        </div>
       </div>
     </div>
 
@@ -1555,11 +1588,6 @@
         <option value="recommended">추천 비중순 ↓</option>
         <option value="ticker">티커순 A→Z</option>
       </select>
-    </div>
-
-    <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin:8px 0 10px;">
-      <button id="copyPortfolioButton" class="button-secondary button-small" type="button" onclick="copyPortfolioTable()">📋 표 복사</button>
-      <button id="downloadPortfolioButton" class="button-secondary button-small" type="button" onclick="downloadPortfolioTable()">📥 표 다운로드</button>
     </div>
 
     <div id="updateStatus" class="status"></div>
@@ -6809,6 +6837,132 @@
   }
 
   /* =========================================================
+     포트폴리오 표 복사 / 다운로드
+  ========================================================= */
+
+  function getPortfolioTableData() {
+    const table = document.querySelector(".table-wrap table");
+    if (!table) throw new Error("포트폴리오 표를 찾을 수 없습니다.");
+
+    const headers = Array.from(table.querySelectorAll("thead th"))
+      .map(th => th.textContent.trim())
+      .filter((_, i) => i < 14); // 마지막 '관리' 열 제외
+
+    const rows = [];
+    table.querySelectorAll("tbody tr").forEach(tr => {
+      const cells = Array.from(tr.children);
+      if (!cells.length || cells.length < 14) return;
+      if (cells[0].hasAttribute("colspan")) return;
+
+      const values = cells.slice(0, 14).map(td => {
+        const input = td.querySelector("input");
+        if (input) return (input.value ?? "").trim();
+        return td.innerText.replace(/\s*\n\s*/g, " ").trim();
+      });
+      if (values.length === 14 && values[0]) rows.push(values);
+    });
+
+    return { headers, rows };
+  }
+
+  function portfolioTableToText(data) {
+    return [data.headers, ...data.rows]
+      .map(row => row.map(v => String(v).replace(/\t/g, " ").replace(/\r?\n/g, " ")).join("\t"))
+      .join("\n");
+  }
+
+  function portfolioTableToHtml(data) {
+    const esc = value => String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+
+    return `<table border="1" cellpadding="5" cellspacing="0" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:12px;">` +
+      `<thead><tr>${data.headers.map(h => `<th style="font-weight:bold;background:#eeeeee;">${esc(h)}</th>`).join("")}</tr></thead>` +
+      `<tbody>${data.rows.map(row => `<tr>${row.map(v => `<td>${esc(v)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  }
+
+  async function copyPortfolioTable() {
+    try {
+      const data = getPortfolioTableData();
+      if (!data.rows.length) {
+        alert("복사할 포트폴리오 데이터가 없습니다.");
+        return;
+      }
+
+      const plain = portfolioTableToText(data);
+      const html = portfolioTableToHtml(data);
+
+      // Rich clipboard: Excel/Google Sheets/지원되는 메모 앱에서는 실제 표로 붙여넣기.
+      if (navigator.clipboard && window.ClipboardItem) {
+        const item = new ClipboardItem({
+          "text/plain": new Blob([plain], { type: "text/plain" }),
+          "text/html": new Blob([html], { type: "text/html" })
+        });
+        await navigator.clipboard.write([item]);
+      } else if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(plain);
+      } else {
+        const area = document.createElement("textarea");
+        area.value = plain;
+        area.style.position = "fixed";
+        area.style.left = "-9999px";
+        document.body.appendChild(area);
+        area.focus();
+        area.select();
+        const ok = document.execCommand("copy");
+        area.remove();
+        if (!ok) throw new Error("클립보드 복사 권한이 없습니다.");
+      }
+
+      const status = document.getElementById("updateStatus");
+      if (status) {
+        status.className = "status";
+        status.textContent = "📋 포트폴리오 표를 클립보드에 복사했습니다. 삼성 노트/Excel/Sheets에 붙여넣으세요.";
+      }
+    } catch (error) {
+      alert("표 복사 실패: " + (error.message || error));
+    }
+  }
+
+  function downloadPortfolioTable() {
+    try {
+      const data = getPortfolioTableData();
+      if (!data.rows.length) {
+        alert("다운로드할 포트폴리오 데이터가 없습니다.");
+        return;
+      }
+
+      const csvEscape = value => {
+        const text = String(value ?? "");
+        return /[",\n\r]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+      };
+      const csv = [data.headers, ...data.rows]
+        .map(row => row.map(csvEscape).join(","))
+        .join("\r\n");
+
+      const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "portfolio_" + new Date().toISOString().slice(0, 10) + ".csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      const status = document.getElementById("updateStatus");
+      if (status) {
+        status.className = "status";
+        status.textContent = "📥 포트폴리오 표를 CSV 파일로 저장했습니다.";
+      }
+    } catch (error) {
+      alert("표 다운로드 실패: " + (error.message || error));
+    }
+  }
+
+  /* =========================================================
      시세 업데이트
   ========================================================= */
 
@@ -6889,164 +7043,6 @@
     if (errorItems.length) message += "\n" + errorItems.join("\n");
     status.textContent = message;
     if (button) button.disabled = false;
-  }
-
-
-  /* =========================================================
-     포트폴리오 표 복사 / CSV 다운로드
-  ========================================================= */
-
-  function getPortfolioTableText() {
-    const table = document.querySelector(".table-wrap table");
-    if (!table) return "";
-
-    const rows = Array.from(table.querySelectorAll("tr"));
-    const lines = rows.map(row => {
-      const cells = Array.from(row.querySelectorAll("th, td"));
-      return cells.map(cell => cell.innerText.replace(/\s+/g, " ").trim()).join("\t");
-    }).filter(Boolean);
-
-    const cash = getCashBalance();
-    const targetCash = getTargetCashPercent();
-    const targetUnallocated = getTargetUnallocatedPercent();
-
-    lines.push(
-      "현금\t\t\t\t" +
-      cash.toLocaleString("en-US", {maximumFractionDigits: 2}) +
-      "\t\t\t\t\t\t\t\t\t"
-      + targetCash.toFixed(2) + "%"
-    );
-    lines.push(
-      "목표 미배분\t\t\t\t\t\t\t\t\t\t\t\t\t" +
-      targetUnallocated.toFixed(2) + "%"
-    );
-
-    return lines.join("\n");
-  }
-
-  async function copyPortfolioTable() {
-    const text = getPortfolioTableText();
-
-    if (!text) {
-      alert("포트폴리오 표를 찾을 수 없습니다.");
-      return;
-    }
-
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        throw new Error("clipboard unavailable");
-      }
-
-      const button = document.getElementById("copyPortfolioButton");
-      if (button) {
-        const original = button.textContent;
-        button.textContent = "✅ 복사 완료";
-        setTimeout(() => { button.textContent = original; }, 1500);
-      }
-    } catch (error) {
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.style.position = "fixed";
-      textarea.style.left = "-9999px";
-      textarea.style.top = "0";
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-
-      let ok = false;
-      try {
-        ok = document.execCommand("copy");
-      } catch (e) {
-        ok = false;
-      }
-
-      textarea.remove();
-
-      if (ok) {
-        const button = document.getElementById("copyPortfolioButton");
-        if (button) {
-          const original = button.textContent;
-          button.textContent = "✅ 복사 완료";
-          setTimeout(() => { button.textContent = original; }, 1500);
-        }
-      } else {
-        alert("복사에 실패했습니다. 브라우저의 클립보드 권한을 확인하세요.");
-      }
-    }
-  }
-
-  function downloadPortfolioTable() {
-    const table = document.querySelector(".table-wrap table");
-
-    if (!table) {
-      alert("포트폴리오 표를 찾을 수 없습니다.");
-      return;
-    }
-
-    const rows = Array.from(table.querySelectorAll("tr"));
-    const csvRows = rows.map(row => {
-      const cells = Array.from(row.querySelectorAll("th, td"));
-      return cells.map(cell => {
-        let value = cell.innerText.replace(/\s+/g, " ").trim();
-
-        /* 관리 버튼/텍스트는 CSV에서 제외 */
-        if (cell.closest("tr") && cell.cellIndex === cells.length - 1) {
-          value = "";
-        }
-
-        value = value.replace(/"/g, '""');
-        return '"' + value + '"';
-      }).join(",");
-    });
-
-    const cash = getCashBalance();
-    const targetCash = getTargetCashPercent();
-    const targetUnallocated = getTargetUnallocatedPercent();
-
-    csvRows.push(
-      ["현금", "", "", "", cash.toFixed(2), "", "", "", "", "", "", "", "", "", ""]
-        .map(v => '"' + String(v).replace(/"/g, '""') + '"').join(",")
-    );
-
-    csvRows.push(
-      ["목표 미배분", "", "", "", "", "", "", "", "", "", targetUnallocated.toFixed(2) + "%"]
-        .map(v => '"' + String(v).replace(/"/g, '""') + '"').join(",")
-    );
-
-    csvRows.push(
-      ["목표 현금", "", "", "", "", "", "", "", "", "", targetCash.toFixed(2) + "%"]
-        .map(v => '"' + String(v).replace(/"/g, '""') + '"').join(",")
-    );
-
-    const csv = "\uFEFF" + csvRows.join("\r\n");
-    const blob = new Blob([csv], {type: "text/csv;charset=utf-8;"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-
-    const now = new Date();
-    const stamp =
-      now.getFullYear() +
-      String(now.getMonth() + 1).padStart(2, "0") +
-      String(now.getDate()).padStart(2, "0") + "_" +
-      String(now.getHours()).padStart(2, "0") +
-      String(now.getMinutes()).padStart(2, "0");
-
-    a.href = url;
-    a.download = "portfolio_" + stamp + ".csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-
-    const button = document.getElementById("downloadPortfolioButton");
-    if (button) {
-      const original = button.textContent;
-      button.textContent = "✅ 다운로드 완료";
-      setTimeout(() => { button.textContent = original; }, 1500);
-    }
   }
 
   /* =========================================================
