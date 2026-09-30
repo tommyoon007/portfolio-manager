@@ -6844,22 +6844,50 @@
     const table = document.querySelector(".table-wrap table");
     if (!table) throw new Error("포트폴리오 표를 찾을 수 없습니다.");
 
-    const headers = Array.from(table.querySelectorAll("thead th"))
-      .map(th => th.textContent.trim())
-      .filter((_, i) => i < 14); // 마지막 '관리' 열 제외
+    // 표 복사 전용: 사용자가 요청한 7개 항목만 추출
+    // 종목(티커만) / 현재가(최근 종가 문구 제외) / 평균매수가 / 수량 / 수익률 / 현재비중 / 추천비중(적용 제외)
+    const headers = [
+      "종목",
+      "현재가",
+      "평균매수가",
+      "수량",
+      "수익률",
+      "현재비중",
+      "추천비중"
+    ];
 
     const rows = [];
     table.querySelectorAll("tbody tr").forEach(tr => {
       const cells = Array.from(tr.children);
-      if (!cells.length || cells.length < 14) return;
+      if (!cells.length || cells.length < 10) return;
       if (cells[0].hasAttribute("colspan")) return;
 
-      const values = cells.slice(0, 14).map(td => {
-        const input = td.querySelector("input");
-        if (input) return (input.value ?? "").trim();
-        return td.innerText.replace(/\s*\n\s*/g, " ").trim();
-      });
-      if (values.length === 14 && values[0]) rows.push(values);
+      const tickerEl = cells[0].querySelector(".ticker");
+      const ticker = tickerEl
+        ? tickerEl.textContent.trim()
+        : cells[0].textContent.trim().split(/\s+/)[0];
+
+      const currentPrice = cells[3]
+        ? (cells[3].querySelector("div")?.textContent.trim() || cells[3].textContent.trim().split(/\s+/)[0])
+        : "";
+
+      const avgPrice = cells[1]?.textContent.trim() || "";
+      const quantity = cells[2]?.textContent.trim() || "";
+      const returnRate = cells[6]?.textContent.trim() || "";
+      const currentWeight = cells[7]?.querySelector(".weight-number")?.textContent.trim() || cells[7]?.textContent.trim() || "";
+      const recommendedWeight = cells[9]?.querySelector(".weight-number")?.textContent.trim() || cells[9]?.textContent.trim().split(/\s+/)[0] || "";
+
+      if (ticker) {
+        rows.push([
+          ticker,
+          currentPrice,
+          avgPrice,
+          quantity,
+          returnRate,
+          currentWeight,
+          recommendedWeight
+        ]);
+      }
     });
 
     return { headers, rows };
