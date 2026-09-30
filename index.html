@@ -349,6 +349,51 @@
       margin-top: 4px;
     }
 
+    .allocation-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #202936;
+    }
+
+    .allocation-field {
+      min-width: 0;
+    }
+
+    .allocation-field-label {
+      display: block;
+      min-height: 18px;
+      margin-bottom: 5px;
+      color: #aab3bf;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.25;
+      white-space: nowrap;
+    }
+
+    .allocation-field input {
+      width: 100%;
+      box-sizing: border-box;
+      height: 42px;
+      padding: 8px 10px;
+      border: 1px solid #303b4a;
+      border-radius: 10px;
+      background: #0b1118;
+      color: #fff;
+      font-size: 13px;
+      outline: none;
+    }
+
+    .allocation-field input:focus {
+      border-color: #684dff;
+    }
+
+    .allocation-status {
+      margin-top: 8px;
+    }
+
     .target-total {
       margin-top: 12px;
       font-size: 13px;
@@ -1086,6 +1131,20 @@
         flex-direction: column;
       }
 
+      .allocation-grid {
+        gap: 7px;
+      }
+
+      .allocation-field-label {
+        font-size: 10px;
+      }
+
+      .allocation-field input {
+        height: 40px;
+        font-size: 12px;
+        padding: 7px 8px;
+      }
+
       .summary-value {
         font-size: 17px;
       }
@@ -1280,20 +1339,21 @@
 
     </div>
 
-    <div style="margin-top:12px;padding-top:12px;border-top:1px solid #202936;">
-      <div class="form-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));">
-        <label>현재 현금
-          <input id="cashBalanceInput" type="number" min="0" step="0.01" placeholder="0" onchange="saveCashBalance();renderPortfolio();">
-        </label>
-        <label>목표 현금 비중 %
-          <input id="targetCashInput" type="number" min="0" max="100" step="1" value="10" onchange="saveAllocationSettings();renderPortfolio();">
-        </label>
-        <label>목표 미배분 %
-          <input id="targetUnallocatedInput" type="number" min="0" max="100" step="1" value="0" onchange="saveAllocationSettings();renderPortfolio();">
-        </label>
+    <div class="allocation-grid">
+      <div class="allocation-field">
+        <span class="allocation-field-label">현재 현금 ($)</span>
+        <input id="cashBalanceInput" type="number" min="0" step="0.01" placeholder="0" onchange="saveCashBalance();renderPortfolio();">
       </div>
-      <div id="allocationStatus" class="status" style="margin-top:8px;">주식 목표비중은 현금·미배분을 제외한 나머지 비중으로 계산됩니다.</div>
+      <div class="allocation-field">
+        <span class="allocation-field-label">목표 현금 (%)</span>
+        <input id="targetCashInput" type="number" min="0" max="100" step="1" value="10" onchange="saveAllocationSettings();renderPortfolio();">
+      </div>
+      <div class="allocation-field">
+        <span class="allocation-field-label">목표 미배분 (%)</span>
+        <input id="targetUnallocatedInput" type="number" min="0" max="100" step="1" value="0" onchange="saveAllocationSettings();renderPortfolio();">
+      </div>
     </div>
+    <div id="allocationStatus" class="status allocation-status">주식 목표비중은 현금·미배분을 제외한 나머지 비중으로 계산됩니다.</div>
 
   </div>
 
@@ -1592,8 +1652,8 @@
       <br><br>
 
       <strong>자산유형 보정</strong>:
-      ETF·채권 ETF는 개별기업 펀더멘털을 직접 평가하지 않고
-      <strong>50점 중립점수</strong>를 사용합니다.
+      ETF·채권 ETF는 개별기업 펀더멘털 대신
+      <strong>ETF 역할·분산·집중도 기반 별도 점수</strong>를 사용합니다.
       개별주식은 기존 100점 펀더멘털 모델을 적용하며,
       성장주·가치주·혼합형 스타일은 표시용으로 분류합니다.
 
@@ -3477,6 +3537,7 @@
         class="mobile-detail"
       >
         <div style="font-size:10px;font-weight:800;color:#fff;">추천 점수 세부내역</div>
+        ${details.etfScore ? `<div style="margin-top:6px;color:#aab3bf;font-size:10px;line-height:1.45;">ETF는 기업 펀더멘털 대신 역할·분산·집중도 특성을 반영합니다. ETF 추천점수: <strong style="color:#fff;">${Number(details.score || 0).toFixed(0)} / 100</strong></div>` : ""}
 
         <div class="mobile-detail-grid">
           <div class="mobile-detail-item">
@@ -5648,11 +5709,83 @@
   }
 
 
+  /* =========================================================
+     ETF 추천점수
+     ETF는 개별기업 재무제표가 없으므로 50점 중립값 대신
+     자산군 역할·분산도·집중도·변동성 특성을 반영한 별도 점수를 사용합니다.
+     점수는 예상수익률이 아니라 포트폴리오 적합성의 상대점수입니다.
+  ========================================================= */
+
+  const ETF_RECOMMENDATION_SCORES = {
+    broad: 60,
+    quality: 58,
+    sector: 55,
+    thematic: 48,
+    bond: 50,
+    mortgage: 45,
+    crypto: 45,
+    other: 50
+  };
+
+  const ETF_SCORE_GROUPS = {
+    broad: new Set(["SPY","VOO","IVV","VTI","DIA","IWM"]),
+    quality: new Set(["QQQ","SCHD","VIG"]),
+    sector: new Set(["SOXX","SMH","XLK","XLF","XLE","XLV","XLI","XLP","XLY","XLC","XLU","XLB","XLRE"]),
+    thematic: new Set(["BOTZ","ROBO","ARKK","ARKQ","ARKX"]),
+    mortgage: new Set(["MORT"]),
+    crypto: new Set(["IBIT","ETHA","ETHZ"]),
+    bond: BOND_ETF_TICKERS
+  };
+
+  function getEtfRecommendationScore(ticker, assetType) {
+    const symbol = String(ticker || "").toUpperCase();
+    if (assetType === "BOND_ETF" || ETF_SCORE_GROUPS.bond.has(symbol)) return ETF_RECOMMENDATION_SCORES.bond;
+    if (ETF_SCORE_GROUPS.mortgage.has(symbol)) return ETF_RECOMMENDATION_SCORES.mortgage;
+    if (ETF_SCORE_GROUPS.crypto.has(symbol)) return ETF_RECOMMENDATION_SCORES.crypto;
+    if (ETF_SCORE_GROUPS.broad.has(symbol)) return ETF_RECOMMENDATION_SCORES.broad;
+    if (ETF_SCORE_GROUPS.quality.has(symbol)) return ETF_RECOMMENDATION_SCORES.quality;
+    if (ETF_SCORE_GROUPS.sector.has(symbol)) return ETF_RECOMMENDATION_SCORES.sector;
+    if (ETF_SCORE_GROUPS.thematic.has(symbol)) return ETF_RECOMMENDATION_SCORES.thematic;
+    return ETF_RECOMMENDATION_SCORES.other;
+  }
+
+  const ETF_MAX_RECOMMENDATION_WEIGHTS = {
+    broad: 25,
+    quality: 20,
+    sector: 15,
+    thematic: 10,
+    bond: 15,
+    mortgage: 10,
+    crypto: 10,
+    other: 15
+  };
+
+  function getEtfMaxRecommendationWeight(ticker, assetType) {
+    const symbol = String(ticker || "").toUpperCase();
+    if (assetType === "BOND_ETF" || ETF_SCORE_GROUPS.bond.has(symbol)) return ETF_MAX_RECOMMENDATION_WEIGHTS.bond;
+    if (ETF_SCORE_GROUPS.mortgage.has(symbol)) return ETF_MAX_RECOMMENDATION_WEIGHTS.mortgage;
+    if (ETF_SCORE_GROUPS.crypto.has(symbol)) return ETF_MAX_RECOMMENDATION_WEIGHTS.crypto;
+    if (ETF_SCORE_GROUPS.broad.has(symbol)) return ETF_MAX_RECOMMENDATION_WEIGHTS.broad;
+    if (ETF_SCORE_GROUPS.quality.has(symbol)) return ETF_MAX_RECOMMENDATION_WEIGHTS.quality;
+    if (ETF_SCORE_GROUPS.sector.has(symbol)) return ETF_MAX_RECOMMENDATION_WEIGHTS.sector;
+    if (ETF_SCORE_GROUPS.thematic.has(symbol)) return ETF_MAX_RECOMMENDATION_WEIGHTS.thematic;
+    return ETF_MAX_RECOMMENDATION_WEIGHTS.other;
+  }
+
+  function getRecommendationMaxWeight(item, fallbackMax = 30) {
+    if (item && (item.assetType === "ETF" || item.assetType === "BOND_ETF")) {
+      return Math.min(fallbackMax, getEtfMaxRecommendationWeight(item.ticker, item.assetType));
+    }
+    return fallbackMax;
+  }
+
   function calculateRecommendationScore(data, assetType = "STOCK") {
 
     if (assetType === "ETF" || assetType === "BOND_ETF") {
+      const etfScore = getEtfRecommendationScore(data && data.__ticker, assetType);
       return {
-        score: 50,
+        score: etfScore,
+        rawScore: etfScore,
         growth: null,
         profitability: null,
         financialStrength: null,
@@ -5660,7 +5793,9 @@
         valuation: null,
         risk: null,
         neutral: true,
-        dataQuality: { available: 0, total: 0, percent: 0 },
+        etfScore: true,
+        confidenceFactor: 1,
+        dataQuality: { available: 0, total: 0, percent: 100 },
         metrics: {}
       };
     }
@@ -5830,18 +5965,10 @@
     scoredItems.forEach(
       item => {
 
-        if (
-          item.weight >
-          MAX_WEIGHT
-        ) {
-
-          excess +=
-            item.weight -
-            MAX_WEIGHT;
-
-          item.weight =
-            MAX_WEIGHT;
-
+        const itemMax = getRecommendationMaxWeight(item, MAX_WEIGHT);
+        if (item.weight > itemMax) {
+          excess += item.weight - itemMax;
+          item.weight = itemMax;
         }
 
       }
@@ -5867,7 +5994,7 @@
           scoredItems.filter(
             item =>
               item.weight <
-              MAX_WEIGHT -
+              getRecommendationMaxWeight(item, MAX_WEIGHT) -
               0.0001
           );
 
@@ -5914,7 +6041,7 @@
 
 
             const room =
-              MAX_WEIGHT -
+              getRecommendationMaxWeight(item, MAX_WEIGHT) -
               item.weight;
 
 
@@ -6204,6 +6331,7 @@
   }
 
   function calculateCustomScore(details, settings) {
+    if (details.etfScore) return Number(details.score) || 50;
     if (details.neutral) return 50;
     const total = settings.growth + settings.profitability + settings.financialStrength + settings.freeCashFlow + settings.valuation + settings.risk;
     if (Math.abs(total - 100) > 0.001) return null;
@@ -6231,19 +6359,21 @@
     });
     let excess = 0;
     scoredItems.forEach(item => {
-      if (item.weight > settings.maxWeight) {
-        excess += item.weight - settings.maxWeight;
-        item.weight = settings.maxWeight;
+      const itemMax = getRecommendationMaxWeight(item, settings.maxWeight);
+      if (item.weight > itemMax) {
+        excess += item.weight - itemMax;
+        item.weight = itemMax;
       }
     });
     for (let pass = 0; pass < 20 && excess > 0.0001; pass++) {
-      const available = scoredItems.filter(item => item.weight < settings.maxWeight - 0.0001);
+      const available = scoredItems.filter(item => item.weight < getRecommendationMaxWeight(item, settings.maxWeight) - 0.0001);
       if (!available.length) break;
       const availableScore = available.reduce((sum, item) => sum + item.score, 0);
       let distributed = 0;
       available.forEach(item => {
         const add = availableScore > 0 ? excess * (item.score / availableScore) : excess / available.length;
-        const actual = Math.min(settings.maxWeight - item.weight, add);
+        const room = getRecommendationMaxWeight(item, settings.maxWeight) - item.weight;
+        const actual = Math.min(room, add);
         item.weight += actual;
         distributed += actual;
       });
@@ -6422,6 +6552,8 @@
           }
 
 
+          data.__ticker = item.ticker;
+
           const investmentStyle =
             detectInvestmentStyle(
               data,
@@ -6451,16 +6583,10 @@
             "";
 
 
-          if (
-            result.neutral
-          ) {
-
-            reason =
-              assetTypeLabel(
-                assetType
-              ) +
-              " / 개별기업 펀더멘털 중립점수 50";
-
+          if (result.neutral) {
+            reason = result.etfScore
+              ? assetTypeLabel(assetType) + " / ETF 역할·분산 적합성 점수 " + result.score.toFixed(0)
+              : assetTypeLabel(assetType) + " / 개별기업 펀더멘털 중립점수 50";
           } else {
 
             reason =
@@ -6599,6 +6725,9 @@
               neutral:
                 result.details.neutral || false,
 
+              etfScore:
+                result.details.etfScore || false,
+
               assetType:
                 result.assetType,
 
@@ -6705,15 +6834,12 @@
      - Alpha Vantage는 재무/추천 데이터에만 사용
   ========================================================= */
 
-  async function getBatchPrices(tickers) {
+  async function getBatchPrices(tickers, statusElement) {
 
-    const apiKey =
-      localStorage.getItem(TWELVE_DATA_KEY_STORAGE);
+    const apiKey = localStorage.getItem(TWELVE_DATA_KEY_STORAGE);
 
     if (!apiKey) {
-      const error = new Error(
-        "Twelve Data API Key가 없습니다. 데이터 설정에서 시세용 Key를 저장하세요."
-      );
+      const error = new Error("Twelve Data API Key가 없습니다. 데이터 설정에서 시세용 Key를 저장하세요.");
       error.code = "NO_TWELVE_KEY";
       throw error;
     }
@@ -6724,74 +6850,89 @@
         .filter(t => /^[A-Z0-9.\-]{1,10}$/.test(t))
     )];
 
-    if (!uniqueTickers.length) return {};
+    if (!uniqueTickers.length) return { results: {}, requested: 0, calls: 0, failedBatches: 0 };
 
     const results = {};
-
     const BATCH_SIZE = 8;
+    const total = uniqueTickers.length;
+    let completed = 0;
+    let calls = 0;
+    let failedBatches = 0;
 
-    for (let i = 0; i < uniqueTickers.length; i += BATCH_SIZE) {
-
+    for (let i = 0; i < total; i += BATCH_SIZE) {
       const chunk = uniqueTickers.slice(i, i + BATCH_SIZE);
+      const batchEnd = Math.min(i + chunk.length, total);
+      let batchOk = false;
 
-      const url =
-        "https://api.twelvedata.com/price" +
-        "?symbol=" + encodeURIComponent(chunk.join(",")) +
-        "&apikey=" + encodeURIComponent(apiKey);
-
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        throw new Error(
-          "Twelve Data API 통신 오류 HTTP " + response.status
-        );
+      if (statusElement) {
+        statusElement.textContent = `시세 조회 중 — ${i + 1}~${batchEnd}/${total} 종목 (배치 ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(total / BATCH_SIZE)})`;
       }
 
-      const data = await response.json();
+      try {
+        const url = "https://api.twelvedata.com/price" +
+          "?symbol=" + encodeURIComponent(chunk.join(",")) +
+          "&apikey=" + encodeURIComponent(apiKey);
+        calls++;
+        const response = await fetch(url);
+        const data = await response.json().catch(() => ({}));
 
-      if (data && data.code && data.message) {
-        throw new Error(
-          "Twelve Data: " + String(data.message)
-        );
-      }
-
-      Object.keys(data || {}).forEach(symbol => {
-        const row = data[symbol];
-        if (!row || typeof row !== "object") return;
-
-        const price = Number(row.price);
-        if (Number.isFinite(price) && price > 0) {
-          results[String(symbol).toUpperCase()] = {
-            price,
-            date: new Date().toISOString(),
-            status: "LIVE",
-            label: "현재가",
-            source: "twelvedata"
-          };
+        if (!response.ok) {
+          throw new Error(`Twelve Data HTTP ${response.status}${data && data.message ? " — " + data.message : ""}`);
         }
-      });
+        if (data && data.code && data.message) {
+          throw new Error("Twelve Data: " + String(data.message));
+        }
 
-      if (uniqueTickers.length === 1 && data && data.price) {
-        const price = Number(data.price);
-        if (Number.isFinite(price) && price > 0) {
-          results[uniqueTickers[0]] = {
-            price,
-            date: new Date().toISOString(),
-            status: "LIVE",
-            label: "현재가",
-            source: "twelvedata"
-          };
+        Object.keys(data || {}).forEach(symbol => {
+          const row = data[symbol];
+          if (!row || typeof row !== "object") return;
+          const price = Number(row.price);
+          if (Number.isFinite(price) && price > 0) {
+            results[String(symbol).toUpperCase()] = {
+              price,
+              date: new Date().toISOString(),
+              status: "LIVE",
+              label: "현재가",
+              source: "twelvedata"
+            };
+          }
+        });
+
+        if (total === 1 && data && data.price) {
+          const price = Number(data.price);
+          if (Number.isFinite(price) && price > 0) {
+            results[uniqueTickers[0]] = { price, date: new Date().toISOString(), status: "LIVE", label: "현재가", source: "twelvedata" };
+          }
+        }
+        batchOk = true;
+      } catch (error) {
+        failedBatches++;
+        console.error("Twelve Data batch failed", chunk, error);
+        if (statusElement) {
+          statusElement.textContent = `시세 조회 ${i + 1}~${batchEnd}/${total} 실패 — 다음 배치를 계속합니다`;
         }
       }
 
-      // Twelve Data Basic 무료 플랜은 분당 8 API credits이므로
-      // 8종목 배치마다 다음 분까지 기다립니다.
-      if (i + BATCH_SIZE < uniqueTickers.length) {
-        await sleep(61000);
+      completed = batchEnd;
+      if (statusElement) {
+        const received = Object.keys(results).length;
+        statusElement.textContent = `시세 조회 진행 ${completed}/${total} — 성공 ${received}개` + (batchOk ? "" : " · 이번 배치 실패");
+      }
+
+      if (completed < total) {
+        let remaining = 60;
+        while (remaining > 0) {
+          if (statusElement) {
+            const received = Object.keys(results).length;
+            statusElement.textContent = `시세 조회 ${completed}/${total} 완료 · 다음 8종목까지 ${remaining}초 대기 · 성공 ${received}개`;
+          }
+          await sleep(1000);
+          remaining--;
+        }
       }
     }
 
-    return results;
+    return { results, requested: total, calls, failedBatches };
   }
 
   /* =========================================================
@@ -6800,124 +6941,68 @@
 
   async function refreshPrices() {
 
-    if (holdings.length === 0) {
-      alert("먼저 종목을 추가하세요.");
-      return;
-    }
-
-    if (!localStorage.getItem(TWELVE_DATA_KEY_STORAGE)) {
-      alert("데이터 설정에서 Twelve Data API Key를 먼저 저장하세요.");
-      return;
-    }
+    if (holdings.length === 0) { alert("먼저 종목을 추가하세요."); return; }
+    if (!localStorage.getItem(TWELVE_DATA_KEY_STORAGE)) { alert("데이터 설정에서 Twelve Data API Key를 먼저 저장하세요."); return; }
 
     const status = document.getElementById("updateStatus");
     const button = document.getElementById("refreshPricesButton");
-
     if (button) button.disabled = true;
-
     status.className = "status loading";
-    status.textContent = "시세를 8종목씩 조회하는 중입니다...";
 
     const activeHoldings = holdings.filter(item =>
-      item &&
-      typeof item.ticker === "string" &&
-      /^[A-Z0-9.\-]{1,10}$/.test(item.ticker) &&
-      Number(item.quantity) > 0 &&
-      Number(item.avgPrice) > 0
+      item && typeof item.ticker === "string" && /^[A-Z0-9.\-]{1,10}$/.test(item.ticker) && Number(item.quantity) > 0 && Number(item.avgPrice) > 0
     );
-
-    const tickers = [...new Set(
-      activeHoldings.map(item => item.ticker.toUpperCase())
-    )];
-
+    const tickers = [...new Set(activeHoldings.map(item => item.ticker.toUpperCase()))];
     let success = 0;
     let failed = 0;
+    let calls = 0;
+    let failedBatches = 0;
 
     try {
-
-      const results = await getBatchPrices(tickers);
+      const response = await getBatchPrices(tickers, status);
+      const results = response.results || {};
+      calls = response.calls || 0;
+      failedBatches = response.failedBatches || 0;
 
       activeHoldings.forEach(item => {
-
         const ticker = item.ticker.toUpperCase();
         const result = results[ticker];
-
         item.priceError = null;
-
         if (!result) {
           item.priceError = ticker + ": 시세 데이터를 받지 못했습니다.";
           failed++;
           return;
         }
-
         item.currentPrice = result.price;
         item.updatedAt = new Date().toISOString();
         item.priceSourceDate = result.date;
         item.priceStatus = result.status;
         item.priceLabel = result.label;
         item.priceSource = result.source;
-
-        priceCache[ticker] = {
-          price: result.price,
-          fetchedAt: item.updatedAt,
-          updatedAt: item.updatedAt,
-          sourceDate: result.date,
-          date: result.date,
-          status: result.status,
-          label: result.label,
-          source: result.source
-        };
-
+        priceCache[ticker] = { price: result.price, fetchedAt: item.updatedAt, updatedAt: item.updatedAt, sourceDate: result.date, date: result.date, status: result.status, label: result.label, source: result.source };
         success++;
       });
-
     } catch (error) {
-
       console.error(error);
-
-      activeHoldings.forEach(item => {
-        item.priceError =
-          error && error.message
-            ? error.message
-            : "시세 조회 실패";
-      });
-
+      activeHoldings.forEach(item => { item.priceError = error && error.message ? error.message : "시세 조회 실패"; });
       failed = activeHoldings.length;
     }
 
     saveHoldings();
-
     if (success > 0) {
       lastUpdatedAt = new Date().toISOString();
       localStorage.setItem(LAST_UPDATED_STORAGE, lastUpdatedAt);
     }
-
     localStorage.setItem(PRICE_CACHE_KEY, JSON.stringify(priceCache));
-
     renderLastUpdated();
     renderPortfolio();
 
-    status.className = "status";
-
-    const errorItems = holdings
-      .filter(item => item.priceError)
-      .slice(0, 3)
-      .map(item => item.ticker + " — " + item.priceError);
-
-    let message =
-      "시세 업데이트 완료 — 성공 " +
-      success +
-      "개 / 실패 " +
-      failed +
-      "개 / API 요청 " +
-      (tickers.length ? "1회" : "0회");
-
-    if (errorItems.length) {
-      message += "\n" + errorItems.join("\n");
-    }
-
+    status.className = success > 0 ? "status" : "status negative";
+    const errorItems = holdings.filter(item => item.priceError).slice(0, 3).map(item => item.ticker + " — " + item.priceError);
+    let message = `시세 업데이트 완료 — 성공 ${success}개 / 실패 ${failed}개 / API 요청 ${calls}회`;
+    if (failedBatches) message += ` / 실패 배치 ${failedBatches}개`;
+    if (errorItems.length) message += "\n" + errorItems.join("\n");
     status.textContent = message;
-
     if (button) button.disabled = false;
   }
 
