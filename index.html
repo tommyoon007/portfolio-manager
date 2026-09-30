@@ -4879,10 +4879,318 @@
         ticker
       ];
 
+    const hasFcfData = data =>
+      data &&
+      (
+        firstNumber(
+          data,
+          [
+            "FreeCashFlow",
+            "FreeCashFlowTTM"
+          ]
+        ) !== null ||
+        (
+          firstNumber(
+            data,
+            [
+              "OperatingCashflow",
+              "OperatingCashFlow"
+            ]
+          ) !== null &&
+          firstNumber(
+            data,
+            [
+              "CapitalExpenditures",
+              "CapitalExpenditure",
+              "CapitalExpendituresTTM"
+            ]
+          ) !== null
+        )
+      );
+
+    const mergeCashFlow = (
+      overview,
+      cashFlow
+    ) => {
+
+      const quarterly =
+        Array.isArray(
+          cashFlow &&
+          cashFlow.quarterlyReports
+        )
+          ? cashFlow.quarterlyReports
+          : [];
+
+      const annual =
+        Array.isArray(
+          cashFlow &&
+          cashFlow.annualReports
+        )
+          ? cashFlow.annualReports
+          : [];
+
+      const directQuarterly =
+        quarterly
+          .slice(
+            0,
+            4
+          )
+          .map(
+            row =>
+              firstNumber(
+                row,
+                [
+                  "freeCashFlow",
+                  "FreeCashFlow"
+                ]
+              )
+          )
+          .filter(
+            value =>
+              value !== null
+          );
+
+      if (
+        directQuarterly.length === 4
+      ) {
+
+        overview.FreeCashFlowTTM =
+          directQuarterly.reduce(
+            (
+              sum,
+              value
+            ) =>
+              sum + value,
+            0
+          );
+
+      } else {
+
+        const ttmRows =
+          quarterly
+            .slice(
+              0,
+              4
+            );
+
+        const ocfValues =
+          ttmRows.map(
+            row =>
+              firstNumber(
+                row,
+                [
+                  "operatingCashflow",
+                  "operatingCashFlow",
+                  "OperatingCashflow",
+                  "OperatingCashFlow"
+                ]
+              )
+          );
+
+        const capexValues =
+          ttmRows.map(
+            row =>
+              firstNumber(
+                row,
+                [
+                  "capitalExpenditures",
+                  "capitalExpenditure",
+                  "CapitalExpenditures",
+                  "CapitalExpenditure"
+                ]
+              )
+          );
+
+        if (
+          ttmRows.length === 4 &&
+          ocfValues.every(
+            value =>
+              value !== null
+          ) &&
+          capexValues.every(
+            value =>
+              value !== null
+          )
+        ) {
+
+          overview.FreeCashFlowTTM =
+            ocfValues.reduce(
+              (
+                sum,
+                value
+              ) =>
+                sum + value,
+              0
+            ) -
+            capexValues.reduce(
+              (
+                sum,
+                value
+              ) =>
+                sum + Math.abs(value),
+              0
+            );
+
+        } else if (
+          annual.length > 0
+        ) {
+
+          const latest =
+            annual[0];
+
+          const ocf =
+            firstNumber(
+              latest,
+              [
+                "operatingCashflow",
+                "operatingCashFlow",
+                "OperatingCashflow",
+                "OperatingCashFlow"
+              ]
+            );
+
+          const capex =
+            firstNumber(
+              latest,
+              [
+                "capitalExpenditures",
+                "capitalExpenditure",
+                "CapitalExpenditures",
+                "CapitalExpenditure"
+              ]
+            );
+
+          if (
+            ocf !== null &&
+            capex !== null
+          ) {
+
+            overview.FreeCashFlowTTM =
+              ocf -
+              Math.abs(capex);
+
+          }
+
+        }
+
+      }
+
+      if (
+        quarterly.length > 0
+      ) {
+
+        const latest =
+          quarterly[0];
+
+        const latestOcf =
+          firstNumber(
+            latest,
+            [
+              "operatingCashflow",
+              "operatingCashFlow",
+              "OperatingCashflow",
+              "OperatingCashFlow"
+            ]
+          );
+
+        if (
+          latestOcf !== null &&
+          firstNumber(
+            overview,
+            [
+              "OperatingCashflow",
+              "OperatingCashFlow"
+            ]
+          ) === null
+        ) {
+
+          overview.OperatingCashflow =
+            latestOcf;
+
+        }
+
+      }
+
+      return overview;
+
+    };
+
+    const fetchCashFlow =
+      async () => {
+
+        const apiKey =
+          localStorage.getItem(
+            API_KEY_STORAGE
+          );
+
+        if (!apiKey) {
+          return {
+            data: null,
+            used: false
+          };
+        }
+
+        const url =
+          "https://www.alphavantage.co/query" +
+          "?function=CASH_FLOW" +
+          "&symbol=" +
+          encodeURIComponent(
+            ticker
+          ) +
+          "&apikey=" +
+          encodeURIComponent(
+            apiKey
+          );
+
+        const response =
+          await fetch(
+            url
+          );
+
+        if (!response.ok) {
+          throw new Error(
+            "FCF 데이터 API 오류: " +
+            response.status
+          );
+        }
+
+        const data =
+          await response.json();
+
+        if (
+          data &&
+          data["Note"]
+        ) {
+
+          throw new Error(
+            "Alpha Vantage API 요청 제한"
+          );
+
+        }
+
+        if (
+          data &&
+          data["Error Message"]
+        ) {
+
+          throw new Error(
+            ticker +
+            ": 현금흐름 데이터를 찾을 수 없습니다."
+          );
+
+        }
+
+        return {
+          data,
+          used: true
+        };
+
+      };
 
     if (
       cached &&
-      cached.savedAt
+      cached.savedAt &&
+      cached.data
     ) {
 
       const age =
@@ -4891,7 +5199,6 @@
           cached.savedAt
         ).getTime();
 
-
       const sevenDays =
         7 *
         24 *
@@ -4899,24 +5206,111 @@
         60 *
         1000;
 
-
       if (
         age < sevenDays &&
-        cached.data
+        hasFcfData(
+          cached.data
+        )
       ) {
 
-        return cached.data;
+        return {
+          ...cached.data,
+          __apiCallsUsed: 0,
+          __fcfAvailable: true
+        };
+
+      }
+
+      if (
+        age < sevenDays
+      ) {
+
+        try {
+
+          const cashFlow =
+            await fetchCashFlow();
+
+          if (
+            cashFlow.data
+          ) {
+
+            const merged =
+              mergeCashFlow(
+                {
+                  ...cached.data
+                },
+                cashFlow.data
+              );
+
+            fundamentalCache[
+              ticker
+            ] = {
+              savedAt:
+                new Date()
+                  .toISOString(),
+              data:
+                merged
+            };
+
+            localStorage.setItem(
+              FUNDAMENTAL_CACHE_KEY,
+              JSON.stringify(
+                fundamentalCache
+              )
+            );
+
+            return {
+              ...merged,
+              __apiCallsUsed:
+                cashFlow.used
+                  ? 1
+                  : 0,
+              __fcfAvailable:
+                hasFcfData(
+                  merged
+                )
+            };
+
+          }
+
+        } catch (
+          error
+        ) {
+
+          console.warn(
+            ticker +
+            " FCF 조회 실패:",
+            error
+          );
+
+          return {
+            ...cached.data,
+            __apiCallsUsed: 0,
+            __fcfAvailable:
+              hasFcfData(
+                cached.data
+              )
+          };
+
+        }
+
+        return {
+          ...cached.data,
+          __apiCallsUsed: 0,
+          __fcfAvailable:
+            hasFcfData(
+              cached.data
+            )
+        };
 
       }
 
     }
 
-
     const apiKey =
       localStorage.getItem(
         API_KEY_STORAGE
       );
-
 
     if (!apiKey) {
 
@@ -4926,19 +5320,22 @@
 
     }
 
-
     const url =
       "https://www.alphavantage.co/query" +
       "?function=OVERVIEW" +
       "&symbol=" +
-      encodeURIComponent(ticker) +
+      encodeURIComponent(
+        ticker
+      ) +
       "&apikey=" +
-      encodeURIComponent(apiKey);
-
+      encodeURIComponent(
+        apiKey
+      );
 
     const response =
-      await fetch(url);
-
+      await fetch(
+        url
+      );
 
     if (!response.ok) {
 
@@ -4949,10 +5346,8 @@
 
     }
 
-
     const data =
       await response.json();
-
 
     if (
       data["Note"]
@@ -4964,7 +5359,6 @@
 
     }
 
-
     if (
       data["Error Message"]
     ) {
@@ -4975,7 +5369,6 @@
       );
 
     }
-
 
     if (
       !data ||
@@ -4989,20 +5382,51 @@
 
     }
 
+    let apiCallsUsed = 1;
+
+    try {
+
+      const cashFlow =
+        await fetchCashFlow();
+
+      if (
+        cashFlow.data
+      ) {
+
+        mergeCashFlow(
+          data,
+          cashFlow.data
+        );
+
+        if (
+          cashFlow.used
+        ) {
+          apiCallsUsed++;
+        }
+
+      }
+
+    } catch (
+      error
+    ) {
+
+      console.warn(
+        ticker +
+        " FCF 조회 실패:",
+        error
+      );
+
+    }
 
     fundamentalCache[
       ticker
     ] = {
-
       savedAt:
         new Date()
-        .toISOString(),
-
+          .toISOString(),
       data:
         data
-
     };
-
 
     localStorage.setItem(
       FUNDAMENTAL_CACHE_KEY,
@@ -5011,8 +5435,15 @@
       )
     );
 
-
-    return data;
+    return {
+      ...data,
+      __apiCallsUsed:
+        apiCallsUsed,
+      __fcfAvailable:
+        hasFcfData(
+          data
+        )
+    };
 
   }
 
@@ -6357,7 +6788,6 @@
             }
 
             if (needsFundamentalApi) {
-              apiCalls++;
               usedFundamentalApi = true;
             }
 
@@ -6366,6 +6796,9 @@
                 item.ticker
               );
 
+            apiCalls += Number(
+              data.__apiCallsUsed || 0
+            );
 
             assetType =
               detectAssetType(
