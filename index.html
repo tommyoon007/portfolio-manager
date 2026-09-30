@@ -1516,14 +1516,6 @@
         >
           🧠 추천 계산
         </button>
-
-        <button
-          id="exportPortfolioButton"
-          class="button-secondary"
-          onclick="exportPortfolioCSV()"
-        >
-          📥 표 다운로드
-        </button>
       </div>
     </div>
 
@@ -3318,91 +3310,6 @@
     } else {
       el.className = "status";
       el.textContent = `전체 100% = 현금 ${cash}% + 종목 ${investable.toFixed(1)}% + 미배분 ${unallocated}%.`;
-    }
-  }
-
-  function csvEscape(value) {
-    const text = value === null || value === undefined ? "" : String(value);
-    return /[",\n\r]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
-  }
-
-  function exportPortfolioCSV() {
-    try {
-      const portfolio = calculatePortfolio();
-      const sorted = getSortedHoldings(portfolio);
-      const targetCashPercent = getTargetCashPercent();
-      const targetUnallocatedPercent = getTargetUnallocatedPercent();
-      const rows = [];
-
-      rows.push(["Portfolio Manager", "포트폴리오 현황"]);
-      rows.push(["기준일", new Date().toLocaleString("ko-KR")]);
-      rows.push([]);
-      rows.push([
-        "티커", "종목명", "보유수량", "평균매수가", "현재가", "평가금액",
-        "손익", "수익률(%)", "현재비중(%)", "추천점수", "추천비중(%)",
-        "목표비중(%)", "비중차이(%p)", "목표금액", "추가/매도금액"
-      ]);
-
-      let stockTargetTotal = 0;
-
-      sorted.forEach(item => {
-        const market = getHoldingMarketData(item);
-        const quantity = Number(item.quantity) || 0;
-        const avgPrice = Number(item.avgPrice) || 0;
-        const cost = avgPrice * quantity;
-        const value = market.hasPrice ? market.value : 0;
-        const profit = market.hasPrice ? value - cost : null;
-        const returnPct = cost > 0 && profit !== null ? (profit / cost) * 100 : null;
-        const currentWeight = market.hasPrice && portfolio.totalValue > 0 ? (value / portfolio.totalValue) * 100 : null;
-        const recommended = Number(item.recommendedWeight);
-        const target = Number(item.targetWeight) || 0;
-        const targetValue = portfolio.totalValue * target / 100;
-        const diff = target - (currentWeight === null ? 0 : currentWeight);
-        const rebalance = targetValue - value;
-        stockTargetTotal += target;
-
-        rows.push([
-          item.ticker || "",
-          item.name || item.ticker || "",
-          quantity,
-          avgPrice,
-          market.hasPrice ? market.price : "",
-          market.hasPrice ? value : "",
-          profit === null ? "" : profit,
-          returnPct === null ? "" : returnPct,
-          currentWeight === null ? "" : currentWeight,
-          Number.isFinite(recommended) ? recommended : "",
-          target,
-          target,
-          diff,
-          targetValue,
-          market.hasPrice ? rebalance : ""
-        ]);
-      });
-
-      rows.push([]);
-      rows.push(["합계", "", "", "", "", portfolio.stockValue, portfolio.totalProfit, portfolio.totalReturn ?? "", portfolio.totalValue > 0 ? portfolio.stockValue / portfolio.totalValue * 100 : "", "", stockTargetTotal, stockTargetTotal, "", portfolio.totalValue * stockTargetTotal / 100, ""]);
-      rows.push(["현금", "", "", "", "", portfolio.cashBalance, "", "", portfolio.totalValue > 0 ? portfolio.cashBalance / portfolio.totalValue * 100 : "", "", "", targetCashPercent, "", portfolio.totalValue * targetCashPercent / 100, ""]);
-      rows.push(["미배분", "", "", "", "", "", "", "", "", "", "", targetUnallocatedPercent, "", portfolio.totalValue * targetUnallocatedPercent / 100, ""]);
-      rows.push(["총자산", "", "", "", "", portfolio.totalValue, "", "", "", "", "", stockTargetTotal + targetCashPercent + targetUnallocatedPercent, "", ""]);
-
-      const csv = "\uFEFF" + rows.map(row => row.map(csvEscape).join(",")).join("\r\n");
-      const blob = new Blob([csv], {type: "text/csv;charset=utf-8;"});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      const date = new Date().toISOString().slice(0,10);
-      a.href = url;
-      a.download = `portfolio_${date}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      const status = document.getElementById("updateStatus");
-      if (status) status.textContent = "📥 포트폴리오 표를 다운로드했습니다.";
-    } catch (error) {
-      console.error("exportPortfolioCSV error:", error);
-      const status = document.getElementById("updateStatus");
-      if (status) status.textContent = "❌ 포트폴리오 표 다운로드에 실패했습니다.";
     }
   }
 
@@ -7206,5 +7113,40 @@
   setTimeout(initRecommendationModeUI, 0);
 </script>
 
+<script>
+(function(){
+  function copyPortfolioTable(){
+    try {
+      const rows = [];
+      const table = document.querySelector('table');
+      if(table){
+        table.querySelectorAll('tr').forEach(tr=>{
+          const cells=[...tr.querySelectorAll('th,td')].map(c=>c.innerText.replace(/\s+/g,' ').trim());
+          if(cells.length) rows.push(cells.join('\t'));
+        });
+      }
+      if(!rows.length){
+        const data = (typeof window.buildExportRows==='function') ? window.buildExportRows() : null;
+        if(Array.isArray(data)) data.forEach(r=>rows.push(r.map(v=>String(v??'')).join('\t')));
+      }
+      if(!rows.length){ alert('복사할 포트폴리오 표가 없습니다.'); return; }
+      const text=rows.join('\n');
+      navigator.clipboard.writeText(text).then(()=>alert('📋 포트폴리오 표를 클립보드에 복사했습니다.\n삼성 노트, Excel, Google Sheets에 붙여넣으세요.')).catch(()=>{
+        const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+        alert('📋 포트폴리오 표를 복사했습니다.');
+      });
+    } catch(e){ alert('표 복사에 실패했습니다.'); }
+  }
+  window.copyPortfolioTable=copyPortfolioTable;
+  document.addEventListener('DOMContentLoaded',()=>{
+    const btn=document.createElement('button');
+    btn.type='button'; btn.textContent='📋 표 복사';
+    btn.onclick=copyPortfolioTable;
+    btn.style.cssText='margin:8px 0;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:#222;color:#fff;font-size:14px;cursor:pointer;';
+    const download=[...document.querySelectorAll('button')].find(b=>/표 다운로드|다운로드/.test(b.textContent));
+    if(download) download.insertAdjacentElement('afterend',btn); else document.body.insertBefore(btn,document.body.firstChild);
+  });
+})();
+</script>
 </body>
 </html>
