@@ -586,6 +586,18 @@
       justify-content: flex-end;
     }
 
+    .portfolio-export-actions {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+      margin-top: 2px;
+    }
+
+    .portfolio-export-actions button {
+      width: 100%;
+    }
+
     .portfolio-actions button {
       padding: 8px 11px;
       font-size: 11px;
@@ -653,6 +665,10 @@
         width: 100%;
         display: grid;
         grid-template-columns: 1fr 1fr;
+      }
+
+      .portfolio-export-actions {
+        grid-column: 1 / -1;
       }
 
       .portfolio-actions button {
@@ -1516,6 +1532,23 @@
         >
           🧠 추천 계산
         </button>
+
+        <div class="portfolio-export-actions">
+          <button
+            type="button"
+            class="button-secondary"
+            onclick="copyPortfolioTable()"
+          >
+            📋 표 복사
+          </button>
+          <button
+            type="button"
+            class="button-secondary"
+            onclick="downloadPortfolioTable()"
+          >
+            📥 표 다운로드
+          </button>
+        </div>
       </div>
     </div>
 
@@ -6801,6 +6834,160 @@
       cacheHits: total - staleTickers.length,
       alphaFallbacks
     };
+  }
+
+  /* =========================================================
+     포트폴리오 표 복사 / 다운로드
+  ========================================================= */
+
+  function getPortfolioTableData() {
+    const table = document.querySelector(".table-wrap table");
+    if (!table) throw new Error("포트폴리오 표를 찾을 수 없습니다.");
+
+    // 표 복사 전용: 사용자가 요청한 7개 항목만 추출
+    // 종목(티커만) / 현재가(최근 종가 문구 제외) / 평균매수가 / 수량 / 수익률 / 현재비중 / 추천비중(적용 제외)
+    const headers = [
+      "종목",
+      "현재가",
+      "평균매수가",
+      "수량",
+      "수익률",
+      "현재비중",
+      "추천비중"
+    ];
+
+    const rows = [];
+    table.querySelectorAll("tbody tr").forEach(tr => {
+      const cells = Array.from(tr.children);
+      if (!cells.length || cells.length < 10) return;
+      if (cells[0].hasAttribute("colspan")) return;
+
+      const tickerEl = cells[0].querySelector(".ticker");
+      const ticker = tickerEl
+        ? tickerEl.textContent.trim()
+        : cells[0].textContent.trim().split(/\s+/)[0];
+
+      const currentPrice = cells[3]
+        ? (cells[3].querySelector("div")?.textContent.trim() || cells[3].textContent.trim().split(/\s+/)[0])
+        : "";
+
+      const avgPrice = cells[1]?.textContent.trim() || "";
+      const quantity = cells[2]?.textContent.trim() || "";
+      const returnRate = cells[6]?.textContent.trim() || "";
+      const currentWeight = cells[7]?.querySelector(".weight-number")?.textContent.trim() || cells[7]?.textContent.trim() || "";
+      const recommendedWeight = cells[9]?.querySelector(".weight-number")?.textContent.trim() || cells[9]?.textContent.trim().split(/\s+/)[0] || "";
+
+      if (ticker) {
+        rows.push([
+          ticker,
+          currentPrice,
+          avgPrice,
+          quantity,
+          returnRate,
+          currentWeight,
+          recommendedWeight
+        ]);
+      }
+    });
+
+    return { headers, rows };
+  }
+
+  function portfolioTableToText(data) {
+    return [data.headers, ...data.rows]
+      .map(row => row.map(v => String(v).replace(/\t/g, " ").replace(/\r?\n/g, " ")).join("\t"))
+      .join("\n");
+  }
+
+  function portfolioTableToHtml(data) {
+    const esc = value => String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+
+    return `<table border="1" cellpadding="5" cellspacing="0" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:12px;">` +
+      `<thead><tr>${data.headers.map(h => `<th style="font-weight:bold;background:#eeeeee;">${esc(h)}</th>`).join("")}</tr></thead>` +
+      `<tbody>${data.rows.map(row => `<tr>${row.map(v => `<td>${esc(v)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  }
+
+  async function copyPortfolioTable() {
+    try {
+      const data = getPortfolioTableData();
+      if (!data.rows.length) {
+        alert("복사할 포트폴리오 데이터가 없습니다.");
+        return;
+      }
+
+      const plain = portfolioTableToText(data);
+      const html = portfolioTableToHtml(data);
+
+      // Rich clipboard: Excel/Google Sheets/지원되는 메모 앱에서는 실제 표로 붙여넣기.
+      if (navigator.clipboard && window.ClipboardItem) {
+        const item = new ClipboardItem({
+          "text/plain": new Blob([plain], { type: "text/plain" }),
+          "text/html": new Blob([html], { type: "text/html" })
+        });
+        await navigator.clipboard.write([item]);
+      } else if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(plain);
+      } else {
+        const area = document.createElement("textarea");
+        area.value = plain;
+        area.style.position = "fixed";
+        area.style.left = "-9999px";
+        document.body.appendChild(area);
+        area.focus();
+        area.select();
+        const ok = document.execCommand("copy");
+        area.remove();
+        if (!ok) throw new Error("클립보드 복사 권한이 없습니다.");
+      }
+
+      const status = document.getElementById("updateStatus");
+      if (status) {
+        status.className = "status";
+        status.textContent = "📋 포트폴리오 표를 클립보드에 복사했습니다. 삼성 노트/Excel/Sheets에 붙여넣으세요.";
+      }
+    } catch (error) {
+      alert("표 복사 실패: " + (error.message || error));
+    }
+  }
+
+  function downloadPortfolioTable() {
+    try {
+      const data = getPortfolioTableData();
+      if (!data.rows.length) {
+        alert("다운로드할 포트폴리오 데이터가 없습니다.");
+        return;
+      }
+
+      const csvEscape = value => {
+        const text = String(value ?? "");
+        return /[",\n\r]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+      };
+      const csv = [data.headers, ...data.rows]
+        .map(row => row.map(csvEscape).join(","))
+        .join("\r\n");
+
+      const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "portfolio_" + new Date().toISOString().slice(0, 10) + ".csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      const status = document.getElementById("updateStatus");
+      if (status) {
+        status.className = "status";
+        status.textContent = "📥 포트폴리오 표를 CSV 파일로 저장했습니다.";
+      }
+    } catch (error) {
+      alert("표 다운로드 실패: " + (error.message || error));
+    }
   }
 
   /* =========================================================
