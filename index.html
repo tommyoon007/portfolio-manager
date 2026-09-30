@@ -1280,6 +1280,21 @@
 
     </div>
 
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid #202936;">
+      <div class="form-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));">
+        <label>현재 현금
+          <input id="cashBalanceInput" type="number" min="0" step="0.01" placeholder="0" onchange="saveCashBalance();renderPortfolio();">
+        </label>
+        <label>목표 현금 비중 %
+          <input id="targetCashInput" type="number" min="0" max="100" step="1" value="10" onchange="saveAllocationSettings();renderPortfolio();">
+        </label>
+        <label>목표 미배분 %
+          <input id="targetUnallocatedInput" type="number" min="0" max="100" step="1" value="0" onchange="saveAllocationSettings();renderPortfolio();">
+        </label>
+      </div>
+      <div id="allocationStatus" class="status" style="margin-top:8px;">주식 목표비중은 현금·미배분을 제외한 나머지 비중으로 계산됩니다.</div>
+    </div>
+
   </div>
 
 
@@ -1460,7 +1475,7 @@
           <label>밸류에이션 <input id="customValuationWeight" type="number" min="0" max="100" step="1" value="10"></label>
           <label>위험도 <input id="customRiskWeight" type="number" min="0" max="100" step="1" value="5"></label>
           <label>종목 최대비중 % <input id="customMaxWeight" type="number" min="1" max="100" step="1" value="30"></label>
-          <label>현금·미배분 % <input id="customCashReserve" type="number" min="0" max="90" step="1" value="0"></label>
+          <label>종목 배분 가능비중 <span style="opacity:.7;font-size:11px;">(자동 계산)</span><input id="customCashReserve" type="number" min="0" max="100" step="1" value="90" disabled></label>
         </div>
         <div id="customWeightTotal" style="margin-top:8px;font-size:12px;font-weight:700;"></div>
         <button class="button-secondary button-small" onclick="resetCustomRecommendationSettings()" style="margin-top:8px;">맞춤 가중치 기본값</button>
@@ -1630,6 +1645,18 @@
   const FUNDAMENTAL_CACHE_KEY =
     "portfolio_manager_fundamental_cache_v1";
 
+  const CASH_BALANCE_KEY =
+    "portfolio_manager_cash_balance_v1";
+
+  const TARGET_CASH_KEY =
+    "portfolio_manager_target_cash_v1";
+
+  const TARGET_UNALLOCATED_KEY =
+    "portfolio_manager_target_unallocated_v1";
+
+  const DEFAULT_TARGET_CASH = 10;
+  const DEFAULT_TARGET_UNALLOCATED = 0;
+
 
   /* =========================================================
      자산유형 분류
@@ -1718,6 +1745,8 @@
     loadHoldings();
 
     loadApiKey();
+
+    loadAllocationSettings();
 
     loadPriceCache();
 
@@ -3158,6 +3187,62 @@
 
   }
 
+  function getCashBalance() {
+    const value = Number(localStorage.getItem(CASH_BALANCE_KEY));
+    return Number.isFinite(value) && value >= 0 ? value : 0;
+  }
+
+  function getTargetCashPercent() {
+    const value = Number(localStorage.getItem(TARGET_CASH_KEY));
+    return Number.isFinite(value) && value >= 0 ? Math.min(100, value) : DEFAULT_TARGET_CASH;
+  }
+
+  function getTargetUnallocatedPercent() {
+    const value = Number(localStorage.getItem(TARGET_UNALLOCATED_KEY));
+    return Number.isFinite(value) && value >= 0 ? Math.min(100, value) : DEFAULT_TARGET_UNALLOCATED;
+  }
+
+  function saveCashBalance() {
+    const el = document.getElementById("cashBalanceInput");
+    const value = Math.max(0, Number(el && el.value) || 0);
+    localStorage.setItem(CASH_BALANCE_KEY, String(value));
+  }
+
+  function saveAllocationSettings() {
+    const cashEl = document.getElementById("targetCashInput");
+    const unallocEl = document.getElementById("targetUnallocatedInput");
+    const cash = Math.max(0, Math.min(100, Number(cashEl && cashEl.value) || 0));
+    const unallocated = Math.max(0, Math.min(100, Number(unallocEl && unallocEl.value) || 0));
+    localStorage.setItem(TARGET_CASH_KEY, String(cash));
+    localStorage.setItem(TARGET_UNALLOCATED_KEY, String(unallocated));
+    updateAllocationStatus();
+  }
+
+  function loadAllocationSettings() {
+    const cashEl = document.getElementById("cashBalanceInput");
+    const targetCashEl = document.getElementById("targetCashInput");
+    const targetUnallocEl = document.getElementById("targetUnallocatedInput");
+    if (cashEl) cashEl.value = getCashBalance();
+    if (targetCashEl) targetCashEl.value = getTargetCashPercent();
+    if (targetUnallocEl) targetUnallocEl.value = getTargetUnallocatedPercent();
+    updateAllocationStatus();
+  }
+
+  function updateAllocationStatus() {
+    const cash = getTargetCashPercent();
+    const unallocated = getTargetUnallocatedPercent();
+    const investable = 100 - cash - unallocated;
+    const el = document.getElementById("allocationStatus");
+    if (!el) return;
+    if (investable < 0) {
+      el.className = "status error";
+      el.textContent = `⚠️ 목표 현금 ${cash}% + 미배분 ${unallocated}%가 100%를 초과합니다.`;
+    } else {
+      el.className = "status";
+      el.textContent = `전체 100% = 현금 ${cash}% + 종목 ${investable.toFixed(1)}% + 미배분 ${unallocated}%.`;
+    }
+  }
+
   function calculatePortfolio() {
 
     let totalCost = 0;
@@ -3189,6 +3274,10 @@
 
     });
 
+    const cashBalance = getCashBalance();
+    const stockValue = totalValue;
+    totalValue += cashBalance;
+
     const totalProfit = knownValue - knownCost;
     const totalReturn =
       knownCost > 0
@@ -3198,6 +3287,8 @@
     return {
       totalCost: totalCost,
       totalValue: totalValue,
+      stockValue: stockValue,
+      cashBalance: cashBalance,
       totalProfit: totalProfit,
       totalReturn: totalReturn,
       knownCost: knownCost,
@@ -3295,18 +3386,11 @@
       );
 
 
-    const unallocated =
-      Math.max(
-        0,
-        portfolio.totalValue *
-        (
-          (
-            100 -
-            targetTotal
-          ) /
-          100
-        )
-      );
+    const targetCashPercent = getTargetCashPercent();
+    const targetUnallocatedPercent = getTargetUnallocatedPercent();
+    const targetCashAmount = portfolio.totalValue * targetCashPercent / 100;
+    const targetUnallocatedAmount = portfolio.totalValue * targetUnallocatedPercent / 100;
+    const targetCombinedTotal = targetTotal + targetCashPercent + targetUnallocatedPercent;
 
 
     const net =
@@ -3326,10 +3410,19 @@
         net,
 
       unallocated:
-        unallocated,
+        targetUnallocatedAmount,
+
+      targetCashAmount:
+        targetCashAmount,
+
+      targetCashPercent:
+        targetCashPercent,
+
+      targetUnallocatedPercent:
+        targetUnallocatedPercent,
 
       targetTotal:
-        targetTotal
+        targetCombinedTotal
 
     };
 
@@ -4287,73 +4380,28 @@
 
   function updateTargetTotal() {
 
-    const total =
-      holdings.reduce(
-        (
-          sum,
-          item
-        ) =>
-          sum +
-          (
-            Number(
-              item.targetWeight
-            ) || 0
-          ),
-        0
-      );
+    const stockTarget = holdings.reduce((sum, item) =>
+      sum + (Number(item.targetWeight) || 0), 0);
+    const cashTarget = getTargetCashPercent();
+    const unallocatedTarget = getTargetUnallocatedPercent();
+    const total = stockTarget + cashTarget + unallocatedTarget;
 
-
-    const element =
-      document.getElementById(
-        "targetTotal"
-      );
-
+    const element = document.getElementById("targetTotal");
+    if (!element) return;
 
     let message =
-      "목표 비중 합계: ";
+      `목표 비중 합계: <strong>${percent(total)}</strong>` +
+      ` <span class="neutral">주식 ${percent(stockTarget)} / 현금 ${percent(cashTarget)} / 미배분 ${percent(unallocatedTarget)}</span>`;
 
-
-    message +=
-      "<strong>" +
-      percent(total) +
-      "</strong>";
-
-
-    if (
-      total > 100.001
-    ) {
-
-      message +=
-        ' <span class="negative">⚠️ 100% 초과</span>';
-
+    if (total > 100.001) {
+      message += ' <span class="negative">⚠️ 100% 초과</span>';
+    } else if (total < 99.999) {
+      message += ` <span class="neutral">추가 미설정 ${percent(100-total)}</span>`;
+    } else {
+      message += ' <span class="positive">✓ 100%</span>';
     }
-
-    else if (
-      total < 99.999
-    ) {
-
-      message +=
-        ' <span class="neutral">미배분 ' +
-        percent(
-          100 - total
-        ) +
-        "</span>";
-
-    }
-
-    else {
-
-      message +=
-        ' <span class="positive">✓ 100%</span>';
-
-    }
-
-
-    element.innerHTML =
-      message;
-
+    element.innerHTML = message;
   }
-
 
   /* =========================================================
      리밸런싱 요약 출력
@@ -5736,8 +5784,9 @@
       totalScore <= 0
     ) {
 
+      const investable = Math.max(0, 100 - getTargetCashPercent() - getTargetUnallocatedPercent());
       const equal =
-        100 /
+        investable /
         scoredItems.length;
 
 
@@ -5764,7 +5813,7 @@
             item.score /
             totalScore
           ) *
-          100;
+          Math.max(0, 100 - getTargetCashPercent() - getTargetUnallocatedPercent());
 
       }
     );
@@ -6169,7 +6218,7 @@
   }
 
   function convertCustomScoresToWeights(scoredItems, settings) {
-    const investable = 100 - settings.cashReserve;
+    const investable = Math.max(0, 100 - getTargetCashPercent() - getTargetUnallocatedPercent());
     if (!scoredItems.length) return;
     const totalScore = scoredItems.reduce((sum, item) => sum + item.score, 0);
     if (totalScore <= 0) {
@@ -6254,6 +6303,13 @@
 
     const mode = getRecommendationMode();
     const customSettings = mode === "CUSTOM" ? saveCustomRecommendationSettings() : null;
+    const allocationTotal = getTargetCashPercent() + getTargetUnallocatedPercent();
+    if (allocationTotal > 100) {
+      button.disabled = false;
+      status.className = "status error";
+      status.textContent = `목표 현금 + 미배분 비중이 ${allocationTotal}%입니다. 100% 이하로 맞춰주세요.`;
+      return;
+    }
     if (mode === "CUSTOM") {
       const customTotal = customSettings.growth + customSettings.profitability + customSettings.financialStrength + customSettings.freeCashFlow + customSettings.valuation + customSettings.risk;
       if (customTotal !== 100) {
