@@ -2933,7 +2933,13 @@
                 </div>
 
                 <div class="detail-score-value">
-                  ${neutral ? "중립" : Number(details.freeCashFlow).toFixed(1) + " / 10"}
+                  ${
+                    neutral
+                      ? "중립"
+                      : (details.freeCashFlow === null || details.freeCashFlow === undefined || !Number.isFinite(Number(details.freeCashFlow))
+                          ? "데이터 없음"
+                          : Number(details.freeCashFlow).toFixed(1) + " / 10")
+                  }
                 </div>
 
               </div>
@@ -4907,7 +4913,15 @@
     const secData = await loadSecFinancialData();
     const secItem = secData[String(ticker || "").toUpperCase()];
 
-    if (secItem && secItem.RevenueTTM !== undefined && (secItem.FreeCashFlowTTM !== undefined || secItem.OperatingCashflow !== undefined)) {
+    // SEC record가 일부 항목만 있어도 우선 사용합니다.
+    // 기존처럼 RevenueTTM + FCF가 모두 있어야만 SEC를 사용하면
+    // 부분적으로 정상 수집된 종목이 불필요하게 Alpha Vantage로 넘어갑니다.
+    const secHasUsableData = !!(
+      secItem &&
+      Object.keys(secItem).some(key => firstNumber(secItem, [key]) !== null)
+    );
+
+    if (secHasUsableData) {
       const cachedAlpha = fundamentalCache[ticker];
       // SEC를 회계 데이터의 우선 원천으로 사용하고,
       // 이미 캐시된 Alpha Vantage 데이터가 있으면 SEC에 없는 보조지표만 보완합니다.
@@ -6768,7 +6782,10 @@
 
     const hasSecData = ticker => {
       const row = secDataForRecommendation[String(ticker || "").toUpperCase()];
-      return !!(row && row.RevenueTTM !== undefined && (row.FreeCashFlowTTM !== undefined || row.OperatingCashflow !== undefined));
+      return !!(
+        row &&
+        Object.keys(row).some(key => firstNumber(row, [key]) !== null)
+      );
     };
 
     const needsAnyApiCall = holdings.some(item => {
