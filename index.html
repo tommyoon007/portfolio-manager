@@ -3614,7 +3614,7 @@
           </div>
           <div class="mobile-detail-item">
             <span>FCF</span>
-            <strong>${Number.isFinite(Number(details.freeCashFlow)) ? Number(details.freeCashFlow).toFixed(1) : "-"} / 10</strong>
+            <strong>${details.freeCashFlow === null || details.freeCashFlow === undefined ? "-" : Number(details.freeCashFlow).toFixed(1)} / 10</strong>
           </div>
           <div class="mobile-detail-item">
             <span>밸류에이션</span>
@@ -4907,35 +4907,26 @@
     const secData = await loadSecFinancialData();
     const secItem = secData[String(ticker || "").toUpperCase()];
 
-    const hasSecUsableData = secItem && [
-      secItem.RevenueTTM,
-      secItem.NetIncomeTTM,
-      secItem.OperatingCashFlowTTM,
-      secItem.OperatingCashflow,
-      secItem.FreeCashFlowTTM,
-      secItem.CapExTTM,
-      secItem.TotalDebt,
-      secItem.CashAndEquivalents,
-      secItem.Cash,
-      secItem.SharesOutstanding
-    ].some(v => Number.isFinite(Number(v)));
-
-    if (hasSecUsableData) {
+    if (secItem && secItem.RevenueTTM !== undefined && (secItem.FreeCashFlowTTM !== undefined || secItem.OperatingCashflow !== undefined)) {
       const cachedAlpha = fundamentalCache[ticker];
+      // SEC를 회계 데이터의 우선 원천으로 사용하고,
+      // 이미 캐시된 Alpha Vantage 데이터가 있으면 SEC에 없는 보조지표만 보완합니다.
       const merged = {
         ...(cachedAlpha && cachedAlpha.data ? cachedAlpha.data : {}),
         ...secItem
       };
-      // SEC field aliases -> engine field names.
-      if (merged.OperatingCashflow === undefined && merged.OperatingCashFlowTTM !== undefined) {
+
+      // SEC TTM fields -> existing scoring-engine field names
+      if (merged.OperatingCashflow == null && merged.OperatingCashFlowTTM != null) {
         merged.OperatingCashflow = merged.OperatingCashFlowTTM;
       }
-      if (merged.CapitalExpenditures === undefined && merged.CapExTTM !== undefined) {
+      if (merged.CapitalExpenditures == null && merged.CapExTTM != null) {
         merged.CapitalExpenditures = merged.CapExTTM;
       }
-      if (merged.FreeCashFlow === undefined && merged.FreeCashFlowTTM !== undefined) {
+      if (merged.FreeCashFlow == null && merged.FreeCashFlowTTM != null) {
         merged.FreeCashFlow = merged.FreeCashFlowTTM;
       }
+
       return {
         ...merged,
         __apiCallsUsed: 0,
@@ -6789,18 +6780,7 @@
 
     const hasSecData = ticker => {
       const row = secDataForRecommendation[String(ticker || "").toUpperCase()];
-      return !!(row && [
-        row.RevenueTTM,
-        row.NetIncomeTTM,
-        row.OperatingCashFlowTTM,
-        row.OperatingCashflow,
-        row.FreeCashFlowTTM,
-        row.CapExTTM,
-        row.TotalDebt,
-        row.CashAndEquivalents,
-        row.Cash,
-        row.SharesOutstanding
-      ].some(v => Number.isFinite(Number(v))));
+      return !!(row && row.RevenueTTM !== undefined && (row.FreeCashFlowTTM !== undefined || row.OperatingCashflow !== undefined));
     };
 
     const needsAnyApiCall = holdings.some(item => {
@@ -6970,7 +6950,7 @@
               " / 밸류 " +
               result.valuation.toFixed(1) +
               " / FCF " +
-              (Number.isFinite(Number(result.freeCashFlow)) ? Number(result.freeCashFlow).toFixed(1) : "데이터 없음") +
+              result.freeCashFlow.toFixed(1) +
               " / 위험 " +
               result.risk.toFixed(1) +
               " / 데이터 " +
