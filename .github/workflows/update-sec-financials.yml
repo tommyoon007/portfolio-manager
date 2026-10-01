@@ -16,10 +16,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install requests
+      - run: pip install requests sec-cik-mapper sec-cik-mapper
       - name: Fetch SEC XBRL data
         env:
-          SEC_USER_AGENT: 'Portfolio Manager GitHub Actions 41898282+github-actions[bot]@users.noreply.github.com'
+          SEC_USER_AGENT: 'PortfolioManager/1.0 (GitHub Actions; https://github.com/tommyoon007/portfolio-manager)'
         run: python sec_financials.py
       - name: Commit updated data
         run: |
