@@ -35,52 +35,38 @@ def num(v):
         return None
 
 
-def get_json(url, headers, timeout=60, retries=4):
-    last_error = None
-    for attempt in range(retries):
-        try:
-            r = requests.get(url, headers=headers, timeout=timeout)
-            status = r.status_code
-            content_type = (r.headers.get('content-type') or '').lower()
+def get_json(url, headers, timeout=(10, 20)):
+    """Fetch one SEC JSON document with a hard timeout and no retry loop.
 
-            if status == 200:
-                text = r.text.lstrip('\ufeff').strip()
-                if not text:
-                    raise RuntimeError(f'Empty SEC response: {url}')
-                try:
-                    return json.loads(text)
-                except json.JSONDecodeError as e:
-                    preview = text[:180].replace('\n', ' ')
-                    raise RuntimeError(
-                        f'SEC returned non-JSON content (HTTP 200, content-type={content_type}). '
-                        f'Preview: {preview}'
-                    ) from e
+    A single failed ticker must never hold the whole GitHub Action open for
+    minutes. The caller records the failure and continues with other tickers.
+    """
+    try:
+        r = requests.get(url, headers=headers, timeout=timeout)
+    except requests.RequestException as exc:
+        raise RuntimeError(f"SEC request failed: {url} — {exc}") from exc
 
-            if status in (403, 429, 500, 502, 503, 504):
-                retry_after = r.headers.get('Retry-After')
-                try:
-                    wait = float(retry_after) if retry_after else (2 ** attempt) * 2
-                except Exception:
-                    wait = (2 ** attempt) * 2
-                last_error = RuntimeError(
-                    f'SEC HTTP {status} for {url}; content-type={content_type}; '
-                    f'body={r.text[:180].replace(chr(10), " ")}'
-                )
-                if attempt < retries - 1:
-                    time.sleep(min(wait, 30))
-                    continue
-                raise last_error
+    content_type = (r.headers.get('content-type') or '').lower()
 
-            r.raise_for_status()
+    if r.status_code != 200:
+        body = r.text[:160].replace('\n', ' ')
+        raise RuntimeError(
+            f"SEC HTTP {r.status_code} for {url}; "
+            f"content-type={content_type}; body={body}"
+        )
 
-        except (requests.RequestException, RuntimeError) as e:
-            last_error = e
-            if attempt < retries - 1:
-                time.sleep(min((2 ** attempt) * 2, 30))
-                continue
-            raise
+    text = r.text.lstrip('\ufeff').strip()
+    if not text:
+        raise RuntimeError(f"Empty SEC response: {url}")
 
-    raise last_error or RuntimeError(f'Unable to fetch {url}')
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        preview = text[:160].replace('\n', ' ')
+        raise RuntimeError(
+            f"SEC returned non-JSON content for {url}; "
+            f"content-type={content_type}; preview={preview}"
+        ) from exc
 
 
 def duration_facts(arr):
@@ -260,64 +246,98 @@ def main():
     if not isinstance(tickers, list):
         raise RuntimeError('sec_tickers.json must contain a JSON array of ticker symbols.')
 
-    # Do NOT call SEC's www.sec.gov/files/company_tickers.json here.
-    # GitHub Actions can receive HTTP 403 from that web endpoint.
-    # The actual financial facts below still come directly from SEC
-    # data.sec.gov XBRL companyfacts.
-    try:
-        from sec_cik_mapper import StockMapper
-    except ImportError as exc:
-        raise RuntimeError(
-            'sec-cik-mapper is required. Install it with: pip install sec-cik-mapper'
-        ) from exc
+    # The workflow downloads a daily pre-generated ticker→CIK mapping.
+    # The actual financial facts remain sourced directly from SEC data.sec.gov.
+    mapping_file = Path('sec_ticker_to_cik.json')
+    if not mapping_file.exists():
+        raise RuntimeError('sec_ticker_to_cik.json was not downloaded.')
 
-    mapper = StockMapper()
+    raw_mapping = json.loads(mapping_file.read_text(encoding='utf-8'))
+    if not isinstance(raw_mapping, dict):
+        raise RuntimeError('sec_ticker_to_cik.json must contain an object.')
+
     by_ticker = {
         str(k).upper().strip(): str(v).zfill(10)
-        for k, v in mapper.ticker_to_cik.items()
+        for k, v in raw_mapping.items()
         if k and v
     }
 
-    # Preserve previously successful records so a temporary API failure
-    # does not erase the last good data for that ticker.
+    # Keep the last good data. A temporary SEC failure must not wipe the file.
     result = {}
+    previous_failures = {}
     if OUT.exists():
         try:
             previous = json.loads(OUT.read_text(encoding='utf-8'))
-            if isinstance(previous, dict) and isinstance(previous.get('data'), dict):
-                result.update(previous['data'])
-        except Exception as e:
-            print(f'WARNING: existing {OUT} could not be read: {e}')
+            if isinstance(previous, dict):
+                if isinstance(previous.get('data'), dict):
+                    result.update(previous['data'])
+                if isinstance(previous.get('errors'), dict):
+                    previous_failures.update(previous['errors'])
+        except Exception as exc:
+            print(f'WARNING: existing {OUT} could not be read: {exc}')
 
-    for ticker in tickers:
-        t = str(ticker).upper().strip()
-        cik = by_ticker.get(t)
-
-        if not cik:
-            # ETFs/funds may not have a StockMapper stock CIK.
-            print(f'SKIP {t}: no stock CIK mapping; ETF/fund or unsupported instrument')
+    requested = []
+    for raw in tickers:
+        ticker = str(raw).upper().strip()
+        if not ticker or ticker in {x['ticker'] for x in requested}:
             continue
+        cik = by_ticker.get(ticker)
+        if not cik:
+            print(f'SKIP {ticker}: no stock CIK mapping (ETF/fund/unsupported)')
+            continue
+        requested.append({'ticker': ticker, 'cik': cik})
 
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def fetch_one(item):
+        ticker = item['ticker']
+        cik = item['cik']
+        url = f'{COMMON}/api/xbrl/companyfacts/CIK{cik}.json'
         try:
-            url = f'{COMMON}/api/xbrl/companyfacts/CIK{cik}.json'
             facts = get_json(url, DATA_HEADERS)
-            record = build_company(t, cik, facts)
-            result[t] = {
+            record = build_company(ticker, cik, facts)
+            clean = {
                 k: v for k, v in record.items()
                 if v is not None or k.startswith('__')
             }
-            print(f'OK {t} CIK={cik}')
-            time.sleep(0.30)
-        except Exception as e:
-            print(f'FAIL {t}: {e}')
+            return ticker, clean, None
+        except Exception as exc:
+            return ticker, None, str(exc)
+
+    # Four concurrent requests stays comfortably below SEC's 10 req/sec
+    # fair-access ceiling while keeping a 30-stock portfolio reasonably fast.
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [pool.submit(fetch_one, item) for item in requested]
+        for future in as_completed(futures):
+            ticker, record, error = future.result()
+            if record is not None:
+                result[ticker] = record
+                previous_failures.pop(ticker, None)
+                print(f'OK {ticker}')
+            else:
+                previous_failures[ticker] = error
+                print(f'FAIL {ticker}: {error}')
 
     payload = {
         'updated_at': datetime.now(timezone.utc).isoformat(),
         'source': 'SEC EDGAR XBRL Companyfacts',
         'data': result,
+        'errors': previous_failures,
+        'stats': {
+            'requested_stock_tickers': len(requested),
+            'successful_records': len(result),
+            'failed_tickers': len(previous_failures),
+        },
     }
-    OUT.write_text(json.dumps(payload, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
-    print(f'Wrote {OUT} with {len(result)} SEC records.')
+
+    OUT.write_text(
+        json.dumps(payload, ensure_ascii=False, separators=(',', ':')),
+        encoding='utf-8'
+    )
+    print(
+        f"Wrote {OUT}: {len(result)} records, "
+        f"{len(previous_failures)} failed/skipped records."
+    )
 
 
 if __name__ == '__main__':
