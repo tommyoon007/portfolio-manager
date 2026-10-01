@@ -13,7 +13,7 @@ TICKERS_FILE = Path('sec_tickers.json')
 # SEC requires a declared User-Agent with a meaningful contact.
 UA = os.environ.get(
     'SEC_USER_AGENT',
-    'Portfolio Manager GitHub Actions 41898282+github-actions[bot]@users.noreply.github.com'
+    'PortfolioManager/1.0 (GitHub Actions; https://github.com/tommyoon007/portfolio-manager)'
 )
 HEADERS = {
     'User-Agent': UA,
@@ -25,7 +25,6 @@ DATA_HEADERS = dict(HEADERS)
 DATA_HEADERS['Host'] = 'data.sec.gov'
 
 COMMON = 'https://data.sec.gov'
-SEC_FILES = 'https://www.sec.gov/files'
 
 
 def num(v):
@@ -261,29 +260,54 @@ def main():
     if not isinstance(tickers, list):
         raise RuntimeError('sec_tickers.json must contain a JSON array of ticker symbols.')
 
-    # This endpoint was returning non-JSON to the GitHub runner in the previous version.
-    # Use a declared contact in SEC_USER_AGENT and validate the response before .json().
-    mapping = get_json(f'{SEC_FILES}/company_tickers.json', HEADERS)
+    # Do NOT call SEC's www.sec.gov/files/company_tickers.json here.
+    # GitHub Actions can receive HTTP 403 from that web endpoint.
+    # The actual financial facts below still come directly from SEC
+    # data.sec.gov XBRL companyfacts.
+    try:
+        from sec_cik_mapper import StockMapper
+    except ImportError as exc:
+        raise RuntimeError(
+            'sec-cik-mapper is required. Install it with: pip install sec-cik-mapper'
+        ) from exc
+
+    mapper = StockMapper()
     by_ticker = {
-        str(v['ticker']).upper(): str(v['cik_str']).zfill(10)
-        for v in mapping.values()
-        if v.get('ticker') and v.get('cik_str')
+        str(k).upper().strip(): str(v).zfill(10)
+        for k, v in mapper.ticker_to_cik.items()
+        if k and v
     }
 
+    # Preserve previously successful records so a temporary API failure
+    # does not erase the last good data for that ticker.
     result = {}
+    if OUT.exists():
+        try:
+            previous = json.loads(OUT.read_text(encoding='utf-8'))
+            if isinstance(previous, dict) and isinstance(previous.get('data'), dict):
+                result.update(previous['data'])
+        except Exception as e:
+            print(f'WARNING: existing {OUT} could not be read: {e}')
+
     for ticker in tickers:
         t = str(ticker).upper().strip()
         cik = by_ticker.get(t)
+
         if not cik:
-            print(f'SKIP {t}: CIK not found in SEC company_tickers.json')
+            # ETFs/funds may not have a StockMapper stock CIK.
+            print(f'SKIP {t}: no stock CIK mapping; ETF/fund or unsupported instrument')
             continue
+
         try:
             url = f'{COMMON}/api/xbrl/companyfacts/CIK{cik}.json'
             facts = get_json(url, DATA_HEADERS)
-            result[t] = {k: v for k, v in build_company(t, cik, facts).items()
-                         if v is not None or k.startswith('__')}
+            record = build_company(t, cik, facts)
+            result[t] = {
+                k: v for k, v in record.items()
+                if v is not None or k.startswith('__')
+            }
             print(f'OK {t} CIK={cik}')
-            time.sleep(0.25)
+            time.sleep(0.30)
         except Exception as e:
             print(f'FAIL {t}: {e}')
 
