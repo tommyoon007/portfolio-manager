@@ -1271,7 +1271,7 @@
       브라우저의 LocalStorage에 저장합니다.
 
       시세는 Twelve Data 배치 API를 사용해 여러 종목을 한 번에 조회하고,
-      재무 데이터는 Alpha Vantage를 사용합니다. 두 API Key는 브라우저 LocalStorage에 저장됩니다.
+      재무 데이터는 SEC EDGAR XBRL을 1차 원천으로 사용하고, SEC에 없는 보조지표만 Alpha Vantage 캐시/API를 사용합니다. 두 API Key는 브라우저 LocalStorage에 저장됩니다.
 
     </div>
 
@@ -1740,6 +1740,10 @@
 
   const FUNDAMENTAL_CACHE_KEY =
     "portfolio_manager_fundamental_cache_v1";
+
+  const SEC_DATA_URL = "./sec_financials.json";
+  let secFinancialData = null;
+  let secFinancialDataLoadedAt = 0;
 
   const CASH_BALANCE_KEY =
     "portfolio_manager_cash_balance_v1";
@@ -4867,12 +4871,57 @@
 
 
   /* =========================================================
+     SEC XBRL 재무 데이터 — 1차 원천
+     GitHub Actions가 SEC EDGAR에서 갱신한 JSON을 읽습니다.
+     SEC data.sec.gov는 브라우저 CORS를 지원하지 않으므로
+     정적 GitHub Pages에서 직접 호출하지 않습니다.
+  ========================================================= */
+
+  async function loadSecFinancialData() {
+    if (secFinancialData && Date.now() - secFinancialDataLoadedAt < 300000) {
+      return secFinancialData;
+    }
+    try {
+      const response = await fetch(SEC_DATA_URL + "?v=" + Date.now(), { cache: "no-store" });
+      if (!response.ok) throw new Error("SEC 데이터 파일 HTTP " + response.status);
+      const payload = await response.json();
+      secFinancialData = payload && payload.data && typeof payload.data === "object" ? payload.data : {};
+      secFinancialDataLoadedAt = Date.now();
+      return secFinancialData;
+    } catch (error) {
+      console.warn("SEC 재무 데이터 로드 실패:", error);
+      secFinancialData = {};
+      secFinancialDataLoadedAt = Date.now();
+      return secFinancialData;
+    }
+  }
+
+  /* =========================================================
      재무 데이터 조회
   ========================================================= */
 
   async function getFundamentals(
     ticker
   ) {
+
+    const secData = await loadSecFinancialData();
+    const secItem = secData[String(ticker || "").toUpperCase()];
+
+    if (secItem && secItem.RevenueTTM !== undefined && (secItem.FreeCashFlowTTM !== undefined || secItem.OperatingCashflow !== undefined)) {
+      const cachedAlpha = fundamentalCache[ticker];
+      // SEC를 회계 데이터의 우선 원천으로 사용하고,
+      // 이미 캐시된 Alpha Vantage 데이터가 있으면 SEC에 없는 보조지표만 보완합니다.
+      const merged = {
+        ...(cachedAlpha && cachedAlpha.data ? cachedAlpha.data : {}),
+        ...secItem
+      };
+      return {
+        ...merged,
+        __apiCallsUsed: 0,
+        __fcfAvailable: getFreeCashFlow(merged) !== null,
+        __source: "SEC XBRL"
+      };
+    }
 
     const cached =
       fundamentalCache[
@@ -6715,9 +6764,16 @@
     let rateLimited = false;
     const failures = [];
 
+    const secDataForRecommendation = await loadSecFinancialData();
+
+    const hasSecData = ticker => {
+      const row = secDataForRecommendation[String(ticker || "").toUpperCase()];
+      return !!(row && row.RevenueTTM !== undefined && (row.FreeCashFlowTTM !== undefined || row.OperatingCashflow !== undefined));
+    };
+
     const needsAnyApiCall = holdings.some(item => {
       const type = detectAssetType(item.ticker, null);
-      return type === "STOCK" && !hasFreshFundamentalCache(item.ticker);
+      return type === "STOCK" && !hasFreshFundamentalCache(item.ticker) && !hasSecData(item.ticker);
     });
 
     if (needsAnyApiCall && !apiKey) {
@@ -6775,7 +6831,8 @@
 
           needsFundamentalApi =
             assetType === "STOCK" &&
-            !hasFreshFundamentalCache(item.ticker);
+            !hasFreshFundamentalCache(item.ticker) &&
+            !hasSecData(item.ticker);
 
           if (
             assetType === "STOCK"
@@ -6810,6 +6867,28 @@
 
 
           data.__ticker = item.ticker;
+
+          // SEC에는 시장가격 기반 지표가 없으므로 현재가와 SEC 주식수/재무값으로 투명하게 계산합니다.
+          const secPrice = Number(item.currentPrice);
+          const secShares = firstNumber(data, ["SharesOutstanding"]);
+          const secRevenue = firstNumber(data, ["RevenueTTM"]);
+          const secNetIncome = firstNumber(data, ["NetIncomeTTM"]);
+          const secEbitda = firstNumber(data, ["EBITDA"]);
+          const secDebt = firstNumber(data, ["TotalDebt"]);
+          const secCash = firstNumber(data, ["Cash"]);
+          if (Number.isFinite(secPrice) && secPrice > 0 && secShares !== null) {
+            const marketCap = secPrice * secShares;
+            if (firstNumber(data, ["MarketCapitalization"]) === null) data.MarketCapitalization = marketCap;
+            if (firstNumber(data, ["PERatio", "TrailingPE"]) === null && secNetIncome !== null && secNetIncome > 0) {
+              data.PERatio = marketCap / secNetIncome;
+            }
+            if (firstNumber(data, ["PriceToSalesRatioTTM"]) === null && secRevenue !== null && secRevenue > 0) {
+              data.PriceToSalesRatioTTM = marketCap / secRevenue;
+            }
+            if (firstNumber(data, ["EVToEBITDA"]) === null && secEbitda !== null && secEbitda > 0 && secDebt !== null && secCash !== null) {
+              data.EVToEBITDA = (marketCap + secDebt - secCash) / secEbitda;
+            }
+          }
 
           const investmentStyle =
             detectInvestmentStyle(
