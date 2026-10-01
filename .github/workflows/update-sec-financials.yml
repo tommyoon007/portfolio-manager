@@ -19,12 +19,12 @@ jobs:
       - run: pip install requests
       - name: Fetch SEC XBRL data
         env:
-          SEC_USER_AGENT: "Portfolio Manager GitHub Action (https://github.com/${{ github.repository }})"
+          SEC_USER_AGENT: 'Portfolio Manager GitHub Actions 41898282+github-actions[bot]@users.noreply.github.com'
         run: python sec_financials.py
       - name: Commit updated data
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add sec_financials.json
-          git diff --cached --quiet || git commit -m "Update SEC financial data"
+          git diff --cached --quiet || git commit -m 'Update SEC financial data'
           git push
