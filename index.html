@@ -4907,20 +4907,7 @@
     const secData = await loadSecFinancialData();
     const secItem = secData[String(ticker || "").toUpperCase()];
 
-    // SEC 데이터는 Revenue가 없어도 FCF/OCF가 있으면 사용한다.
-    // 기존 조건은 RevenueTTM까지 요구해서 FCF가 정상 수집된 종목도
-    // Alpha Vantage로 다시 넘어가는 문제가 있었다.
-    const secHasFcf =
-      secItem &&
-      (
-        firstNumber(secItem, ["FreeCashFlow", "FreeCashFlowTTM"]) !== null ||
-        (
-          firstNumber(secItem, ["OperatingCashflow", "OperatingCashFlow"]) !== null &&
-          firstNumber(secItem, ["CapitalExpenditures", "CapitalExpenditure", "CapitalExpendituresTTM"]) !== null
-        )
-      );
-
-    if (secHasFcf) {
+    if (secItem && secItem.RevenueTTM !== undefined && (secItem.FreeCashFlowTTM !== undefined || secItem.OperatingCashflow !== undefined)) {
       const cachedAlpha = fundamentalCache[ticker];
       // SEC를 회계 데이터의 우선 원천으로 사용하고,
       // 이미 캐시된 Alpha Vantage 데이터가 있으면 SEC에 없는 보조지표만 보완합니다.
@@ -4929,7 +4916,7 @@
         ...secItem
       };
 
-      // SEC 필드명을 기존 추천엔진의 필드명으로 명시적으로 통일
+      // SEC TTM fields -> existing scoring-engine field names
       if (merged.OperatingCashflow == null && merged.OperatingCashFlowTTM != null) {
         merged.OperatingCashflow = merged.OperatingCashFlowTTM;
       }
@@ -6793,16 +6780,7 @@
 
     const hasSecData = ticker => {
       const row = secDataForRecommendation[String(ticker || "").toUpperCase()];
-      return !!(
-        row &&
-        (
-          firstNumber(row, ["FreeCashFlow", "FreeCashFlowTTM"]) !== null ||
-          (
-            firstNumber(row, ["OperatingCashflow", "OperatingCashFlow"]) !== null &&
-            firstNumber(row, ["CapitalExpenditures", "CapitalExpenditure", "CapitalExpendituresTTM"]) !== null
-          )
-        )
-      );
+      return !!(row && row.RevenueTTM !== undefined && (row.FreeCashFlowTTM !== undefined || row.OperatingCashflow !== undefined));
     };
 
     const needsAnyApiCall = holdings.some(item => {
