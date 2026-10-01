@@ -5,22 +5,47 @@ on:
     - cron: '20 6 * * *'
   workflow_dispatch:
 
+concurrency:
+  group: portfolio-manager-sec-financials
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
 jobs:
   update-sec:
     runs-on: ubuntu-latest
+    timeout-minutes: 8
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install requests sec-cik-mapper sec-cik-mapper
+
+      - name: Install dependencies
+        run: pip install --no-cache-dir requests
+
+      - name: Download ticker to CIK mapping
+        run: |
+          curl --fail --location --silent --show-error             --retry 2 --connect-timeout 10 --max-time 30             https://raw.githubusercontent.com/jadchaar/sec-cik-mapper/main/mappings/stocks/ticker_to_cik.json             -o sec_ticker_to_cik.json
+          python - <<'PY'
+          import json
+          with open('sec_ticker_to_cik.json', encoding='utf-8') as f:
+              data = json.load(f)
+          if not isinstance(data, dict) or len(data) < 1000:
+              raise SystemExit('Ticker/CIK mapping validation failed.')
+          print(f'Loaded {len(data)} ticker/CIK mappings.')
+          PY
+
       - name: Fetch SEC XBRL data
         env:
           SEC_USER_AGENT: 'PortfolioManager/1.0 (GitHub Actions; https://github.com/tommyoon007/portfolio-manager)'
         run: python sec_financials.py
+
       - name: Commit updated data
         run: |
           git config user.name 'github-actions[bot]'
