@@ -31,25 +31,62 @@ jobs:
 
       - name: Download ticker to CIK mapping
         run: |
-          curl --fail --location --silent --show-error             --retry 2 --connect-timeout 10 --max-time 30             https://raw.githubusercontent.com/jadchaar/sec-cik-mapper/main/mappings/stocks/ticker_to_cik.json             -o sec_ticker_to_cik.json
+          curl --fail --location --silent --show-error \
+            --retry 2 \
+            --connect-timeout 10 \
+            --max-time 30 \
+            https://raw.githubusercontent.com/jadchaar/sec-cik-mapper/main/mappings/stocks/ticker_to_cik.json \
+            -o sec_ticker_to_cik.json
+
           python - <<'PY'
           import json
-          with open('sec_ticker_to_cik.json', encoding='utf-8') as f:
+
+          with open(
+              'sec_ticker_to_cik.json',
+              encoding='utf-8'
+          ) as f:
               data = json.load(f)
-          if not isinstance(data, dict) or len(data) < 1000:
-              raise SystemExit('Ticker/CIK mapping validation failed.')
-          print(f'Loaded {len(data)} ticker/CIK mappings.')
+
+          if (
+              not isinstance(data, dict)
+              or len(data) < 1000
+          ):
+              raise SystemExit(
+                  'Ticker/CIK mapping validation failed.'
+              )
+
+          print(
+              f'Loaded {len(data)} '
+              'ticker/CIK mappings.'
+          )
           PY
+
+      - name: Validate SEC contact email
+        env:
+          SEC_CONTACT_EMAIL: ${{ secrets.SEC_CONTACT_EMAIL }}
+        run: |
+          if [ -z "$SEC_CONTACT_EMAIL" ]; then
+            echo "SEC_CONTACT_EMAIL Secret이 없습니다."
+            echo "GitHub Settings → Secrets and variables → Actions에서 추가하세요."
+            exit 1
+          fi
+
+          echo "SEC contact email is configured."
 
       - name: Fetch SEC XBRL data
         env:
-          SEC_USER_AGENT: 'PortfolioManager/1.0 (GitHub Actions; https://github.com/tommyoon007/portfolio-manager)'
-        run: python sec_financials.py
+          SEC_CONTACT_EMAIL: ${{ secrets.SEC_CONTACT_EMAIL }}
+        run: |
+          python sec_financials.py
 
       - name: Commit updated data
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
           git add sec_financials.json
-          git diff --cached --quiet || git commit -m 'Update SEC financial data'
+
+          git diff --cached --quiet || \
+            git commit -m 'Update SEC financial data'
+
           git push
