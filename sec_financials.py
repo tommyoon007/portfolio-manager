@@ -7,10 +7,14 @@ from pathlib import Path
 
 import requests
 
+
 OUT = Path('sec_financials.json')
 TICKERS_FILE = Path('sec_tickers.json')
 
-# SEC requires a declared User-Agent with meaningful contact information.
+# ============================================================
+# SEC CONTACT / USER-AGENT
+# ============================================================
+
 contact_email = os.environ.get('SEC_CONTACT_EMAIL', '').strip()
 
 if not contact_email:
@@ -19,51 +23,165 @@ if not contact_email:
         'GitHub Repository Secret에 SEC_CONTACT_EMAIL을 추가하세요.'
     )
 
+# SEC는 자동화 요청에 명확한 User-Agent와 연락처를 요구한다.
 UA = (
-    'PortfolioManager/1.0 '
-    f'({contact_email}; '
-    'https://github.com/tommyoon007/portfolio-manager)'
+    f'PortfolioManager/1.0 '
+    f'{contact_email}'
 )
 
 HEADERS = {
     'User-Agent': UA,
     'Accept': 'application/json',
     'Accept-Encoding': 'gzip, deflate',
-    'Host': 'data.sec.gov',
+    'Connection': 'keep-alive',
 }
+
+DATA_HEADERS = dict(HEADERS)
 
 COMMON = 'https://data.sec.gov'
 
 
+# ============================================================
+# BASIC HELPERS
+# ============================================================
+
 def num(v):
     try:
         x = float(v)
-        return x if math.isfinite(x) else None
+
+        if math.isfinite(x):
+            return x
+
+        return None
+
     except Exception:
         return None
 
 
 def get_json(url, headers, timeout=(15, 30)):
-    try:
-        r = requests.get(
-            url,
-            headers=headers,
-            timeout=timeout
-        )
-    except requests.RequestException as exc:
-        raise RuntimeError(
-            f'SEC request failed: {url} — {exc}'
-        ) from exc
+    """
+    SEC JSON 요청.
 
-    content_type = (
-        r.headers.get('content-type') or ''
-    ).lower()
+    - 명확한 User-Agent 사용
+    - Host 헤더는 직접 지정하지 않음
+    - 순차 요청을 전제로 사용
+    - 일시적 네트워크 오류는 짧게 재시도
+    - 403은 SEC 차단 여부를 명확하게 표시
+    """
 
-    if r.status_code != 200:
+    last_error = None
+
+    for attempt in range(2):
+
+        try:
+
+            r = requests.get(
+                url,
+                headers=headers,
+                timeout=timeout
+            )
+
+        except requests.RequestException as exc:
+
+            last_error = (
+                f'SEC request failed: {exc}'
+            )
+
+            if attempt == 0:
+                time.sleep(3)
+                continue
+
+            raise RuntimeError(
+                f'{last_error}'
+            ) from exc
+
+        content_type = (
+            r.headers.get('content-type')
+            or ''
+        ).lower()
+
+        # ----------------------------------------------------
+        # SUCCESS
+        # ----------------------------------------------------
+
+        if r.status_code == 200:
+
+            text = (
+                r.text
+                .lstrip('\ufeff')
+                .strip()
+            )
+
+            if not text:
+                raise RuntimeError(
+                    f'Empty SEC response: {url}'
+                )
+
+            try:
+                return json.loads(text)
+
+            except json.JSONDecodeError as exc:
+
+                preview = (
+                    text[:300]
+                    .replace('\n', ' ')
+                )
+
+                raise RuntimeError(
+                    'SEC returned non-JSON content '
+                    f'for {url}; '
+                    f'content-type={content_type}; '
+                    f'preview={preview}'
+                ) from exc
+
+        # ----------------------------------------------------
+        # SEC AUTOMATED TOOL BLOCK
+        # ----------------------------------------------------
+
+        if r.status_code == 403:
+
+            body = (
+                r.text[:500]
+                .replace('\n', ' ')
+            )
+
+            raise RuntimeError(
+                'SEC HTTP 403 — automated access blocked. '
+                f'URL={url}; '
+                f'content-type={content_type}; '
+                f'body={body}'
+            )
+
+        # ----------------------------------------------------
+        # RATE LIMIT
+        # ----------------------------------------------------
+
+        if r.status_code in (429, 503):
+
+            body = (
+                r.text[:300]
+                .replace('\n', ' ')
+            )
+
+            last_error = (
+                f'SEC HTTP {r.status_code} for {url}; '
+                f'content-type={content_type}; '
+                f'body={body}'
+            )
+
+            if attempt == 0:
+                time.sleep(5)
+                continue
+
+            raise RuntimeError(last_error)
+
+        # ----------------------------------------------------
+        # OTHER HTTP ERROR
+        # ----------------------------------------------------
+
         body = (
-            r.text[:1000]
+            r.text[:300]
             .replace('\n', ' ')
-            .replace('\r', ' ')
         )
 
         raise RuntimeError(
@@ -72,40 +190,31 @@ def get_json(url, headers, timeout=(15, 30)):
             f'body={body}'
         )
 
-    text = r.text.lstrip('\ufeff').strip()
+    raise RuntimeError(
+        last_error or
+        f'Unknown SEC request error: {url}'
+    )
 
-    if not text:
-        raise RuntimeError(
-            f'Empty SEC response: {url}'
-        )
 
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as exc:
-        preview = (
-            text[:1000]
-            .replace('\n', ' ')
-            .replace('\r', ' ')
-        )
-
-        raise RuntimeError(
-            f'SEC returned non-JSON content for {url}; '
-            f'content-type={content_type}; '
-            f'preview={preview}'
-        ) from exc
-
+# ============================================================
+# XBRL FACT HELPERS
+# ============================================================
 
 def duration_facts(arr):
+
     out = []
 
     for x in arr or []:
+
         if (
             x.get('start')
             and x.get('end')
             and num(x.get('val')) is not None
         ):
+
             y = dict(x)
             y['val'] = num(x['val'])
+
             out.append(y)
 
     return sorted(
@@ -118,15 +227,19 @@ def duration_facts(arr):
 
 
 def instant_facts(arr):
+
     out = []
 
     for x in arr or []:
+
         if (
             not x.get('start')
             and num(x.get('val')) is not None
         ):
+
             y = dict(x)
             y['val'] = num(x['val'])
+
             out.append(y)
 
     return sorted(
@@ -139,18 +252,27 @@ def instant_facts(arr):
 
 
 def quarter_values(arr):
+
     q = []
 
     for r in duration_facts(arr):
+
         try:
+
             start = datetime.fromisoformat(
                 r['start']
             )
+
             end = datetime.fromisoformat(
                 r['end']
             )
-            days = (end - start).days
+
+            days = (
+                end - start
+            ).days
+
         except Exception:
+
             continue
 
         if 70 <= days <= 120:
@@ -168,9 +290,11 @@ def quarter_values(arr):
 
 
 def ttm_from_quarters(arr):
+
     q = quarter_values(arr)
 
     if len(q) >= 4:
+
         return sum(
             x['val']
             for x in q[-4:]
@@ -180,6 +304,7 @@ def ttm_from_quarters(arr):
 
 
 def latest_q_growth(arr):
+
     q = quarter_values(arr)
 
     if len(q) < 5:
@@ -191,10 +316,14 @@ def latest_q_growth(arr):
     if b == 0:
         return None
 
-    return (a / b - 1) * 100
+    return (
+        (a / b - 1)
+        * 100
+    )
 
 
 def fact_latest(arr):
+
     rows = instant_facts(arr)
 
     return (
@@ -205,6 +334,7 @@ def fact_latest(arr):
 
 
 def fact_duration_latest(arr):
+
     rows = duration_facts(arr)
 
     return (
@@ -220,23 +350,23 @@ def arr_for(
     tags,
     unit
 ):
+
     base = facts_all.get(
         taxonomy,
         {}
     )
 
     for tag in tags:
+
         obj = base.get(
             tag,
             {}
         )
 
-        arr = obj.get(
-            'units',
-            {}
-        ).get(
-            unit,
-            []
+        arr = (
+            obj
+            .get('units', {})
+            .get(unit, [])
         )
 
         if arr:
@@ -245,15 +375,24 @@ def arr_for(
     return []
 
 
+# ============================================================
+# BUILD COMPANY DATA
+# ============================================================
+
 def build_company(
     ticker,
     cik,
     payload
 ):
+
     facts_all = payload.get(
         'facts',
         {}
     )
+
+    # --------------------------------------------------------
+    # REVENUE
+    # --------------------------------------------------------
 
     revenue_arr = arr_for(
         facts_all,
@@ -266,6 +405,10 @@ def build_company(
         'USD'
     )
 
+    # --------------------------------------------------------
+    # NET INCOME
+    # --------------------------------------------------------
+
     ni_arr = arr_for(
         facts_all,
         'us-gaap',
@@ -277,6 +420,10 @@ def build_company(
         'USD'
     )
 
+    # --------------------------------------------------------
+    # OPERATING CASH FLOW
+    # --------------------------------------------------------
+
     ocf_arr = arr_for(
         facts_all,
         'us-gaap',
@@ -285,6 +432,10 @@ def build_company(
         ],
         'USD'
     )
+
+    # --------------------------------------------------------
+    # CAPEX
+    # --------------------------------------------------------
 
     capex_arr = arr_for(
         facts_all,
@@ -296,6 +447,10 @@ def build_company(
         'USD'
     )
 
+    # --------------------------------------------------------
+    # OPERATING INCOME
+    # --------------------------------------------------------
+
     opinc_arr = arr_for(
         facts_all,
         'us-gaap',
@@ -304,6 +459,10 @@ def build_company(
         ],
         'USD'
     )
+
+    # --------------------------------------------------------
+    # INTEREST EXPENSE
+    # --------------------------------------------------------
 
     interest_arr = arr_for(
         facts_all,
@@ -315,6 +474,10 @@ def build_company(
         'USD'
     )
 
+    # --------------------------------------------------------
+    # DEPRECIATION / AMORTIZATION
+    # --------------------------------------------------------
+
     da_arr = arr_for(
         facts_all,
         'us-gaap',
@@ -324,6 +487,10 @@ def build_company(
         ],
         'USD'
     )
+
+    # --------------------------------------------------------
+    # TTM
+    # --------------------------------------------------------
 
     revenue_ttm = (
         ttm_from_quarters(
@@ -361,6 +528,10 @@ def build_company(
         )
     )
 
+    # --------------------------------------------------------
+    # FREE CASH FLOW
+    # --------------------------------------------------------
+
     fcf = (
         ocf_ttm - abs(capex_ttm)
         if (
@@ -369,6 +540,10 @@ def build_company(
         )
         else None
     )
+
+    # --------------------------------------------------------
+    # OPERATING INCOME
+    # --------------------------------------------------------
 
     opinc_ttm = (
         ttm_from_quarters(
@@ -379,6 +554,10 @@ def build_company(
         )
     )
 
+    # --------------------------------------------------------
+    # INTEREST
+    # --------------------------------------------------------
+
     interest_ttm = (
         ttm_from_quarters(
             interest_arr
@@ -387,6 +566,10 @@ def build_company(
             interest_arr
         )
     )
+
+    # --------------------------------------------------------
+    # D&A
+    # --------------------------------------------------------
 
     da_ttm = (
         ttm_from_quarters(
@@ -397,6 +580,10 @@ def build_company(
         )
     )
 
+    # --------------------------------------------------------
+    # EBITDA
+    # --------------------------------------------------------
+
     ebitda = (
         opinc_ttm + abs(da_ttm)
         if (
@@ -406,10 +593,30 @@ def build_company(
         else None
     )
 
+    # --------------------------------------------------------
+    # BALANCE SHEET
+    # --------------------------------------------------------
+
     us = facts_all.get(
         'us-gaap',
         {}
     )
+
+    assets = fact_latest(
+        us.get('Assets', {})
+        .get('units', {})
+        .get('USD', [])
+    )
+
+    liabilities = fact_latest(
+        us.get('Liabilities', {})
+        .get('units', {})
+        .get('USD', [])
+    )
+
+    # --------------------------------------------------------
+    # EQUITY
+    # --------------------------------------------------------
 
     equity = None
 
@@ -417,6 +624,7 @@ def build_company(
         'StockholdersEquity',
         'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'
     ]:
+
         equity = fact_latest(
             us.get(tag, {})
             .get('units', {})
@@ -426,12 +634,17 @@ def build_company(
         if equity is not None:
             break
 
+    # --------------------------------------------------------
+    # CASH
+    # --------------------------------------------------------
+
     cash = None
 
     for tag in [
         'CashAndCashEquivalentsAtCarryingValue',
         'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents'
     ]:
+
         cash = fact_latest(
             us.get(tag, {})
             .get('units', {})
@@ -440,6 +653,10 @@ def build_company(
 
         if cash is not None:
             break
+
+    # --------------------------------------------------------
+    # CURRENT ASSETS / LIABILITIES
+    # --------------------------------------------------------
 
     ca = fact_latest(
         us.get('AssetsCurrent', {})
@@ -453,6 +670,10 @@ def build_company(
         .get('USD', [])
     )
 
+    # --------------------------------------------------------
+    # DEBT
+    # --------------------------------------------------------
+
     debt = 0
 
     for tag in [
@@ -461,6 +682,7 @@ def build_company(
         'LongTermDebtNoncurrent',
         'LongTermDebtAndFinanceLeaseObligationsNoncurrent'
     ]:
+
         v = fact_latest(
             us.get(tag, {})
             .get('units', {})
@@ -468,10 +690,11 @@ def build_company(
         )
 
         if v is not None:
-            debt += max(
-                0,
-                v
-            )
+            debt += max(0, v)
+
+    # --------------------------------------------------------
+    # SHARES
+    # --------------------------------------------------------
 
     dei = facts_all.get(
         'dei',
@@ -479,18 +702,13 @@ def build_company(
     )
 
     shobj = (
-        dei.get(
+        dei
+        .get(
             'EntityCommonStockSharesOutstanding',
             {}
         )
-        .get(
-            'units',
-            {}
-        )
-        .get(
-            'shares',
-            []
-        )
+        .get('units', {})
+        .get('shares', [])
     )
 
     shares_rows = instant_facts(
@@ -503,7 +721,12 @@ def build_company(
         else None
     )
 
+    # --------------------------------------------------------
+    # RETURN
+    # --------------------------------------------------------
+
     return {
+
         'RevenueTTM':
             revenue_ttm,
 
@@ -525,9 +748,9 @@ def build_company(
 
         'OperatingMarginTTM':
             (
-                opinc_ttm /
-                revenue_ttm *
-                100
+                opinc_ttm
+                / revenue_ttm
+                * 100
                 if (
                     opinc_ttm is not None
                     and revenue_ttm
@@ -537,9 +760,9 @@ def build_company(
 
         'ReturnOnEquityTTM':
             (
-                ni_ttm /
-                equity *
-                100
+                ni_ttm
+                / equity
+                * 100
                 if (
                     ni_ttm is not None
                     and equity not in (
@@ -552,9 +775,9 @@ def build_company(
 
         'DebtToEquity':
             (
-                debt /
-                equity *
-                100
+                debt
+                / equity
+                * 100
                 if equity not in (
                     None,
                     0
@@ -637,7 +860,15 @@ def build_company(
     }
 
 
+# ============================================================
+# MAIN
+# ============================================================
+
 def main():
+
+    # --------------------------------------------------------
+    # TICKERS
+    # --------------------------------------------------------
 
     tickers = json.loads(
         TICKERS_FILE.read_text(
@@ -649,18 +880,25 @@ def main():
         tickers,
         list
     ):
+
         raise RuntimeError(
             'sec_tickers.json must contain '
             'a JSON array of ticker symbols.'
         )
+
+    # --------------------------------------------------------
+    # CIK MAPPING
+    # --------------------------------------------------------
 
     mapping_file = Path(
         'sec_ticker_to_cik.json'
     )
 
     if not mapping_file.exists():
+
         raise RuntimeError(
-            'sec_ticker_to_cik.json was not downloaded.'
+            'sec_ticker_to_cik.json '
+            'was not downloaded.'
         )
 
     raw_mapping = json.loads(
@@ -673,23 +911,33 @@ def main():
         raw_mapping,
         dict
     ):
+
         raise RuntimeError(
-            'sec_ticker_to_cik.json must '
-            'contain an object.'
+            'sec_ticker_to_cik.json '
+            'must contain an object.'
         )
 
     by_ticker = {
+
         str(k).upper().strip():
             str(v).zfill(10)
+
         for k, v in raw_mapping.items()
+
         if k and v
     }
+
+    # --------------------------------------------------------
+    # KEEP PREVIOUS GOOD DATA
+    # --------------------------------------------------------
 
     result = {}
     previous_failures = {}
 
     if OUT.exists():
+
         try:
+
             previous = json.loads(
                 OUT.read_text(
                     encoding='utf-8'
@@ -705,6 +953,7 @@ def main():
                     previous.get('data'),
                     dict
                 ):
+
                     result.update(
                         previous['data']
                     )
@@ -713,24 +962,33 @@ def main():
                     previous.get('errors'),
                     dict
                 ):
+
                     previous_failures.update(
                         previous['errors']
                     )
 
         except Exception as exc:
+
             print(
                 f'WARNING: existing {OUT} '
                 f'could not be read: {exc}'
             )
 
+    # --------------------------------------------------------
+    # BUILD REQUEST LIST
+    # --------------------------------------------------------
+
     requested = []
+
     existing_tickers = set()
 
     for raw in tickers:
 
-        ticker = str(
-            raw
-        ).upper().strip()
+        ticker = (
+            str(raw)
+            .upper()
+            .strip()
+        )
 
         if (
             not ticker
@@ -743,11 +1001,13 @@ def main():
         )
 
         if not cik:
+
             print(
                 f'SKIP {ticker}: '
                 'no stock CIK mapping '
                 '(ETF/fund/unsupported)'
             )
+
             continue
 
         requested.append({
@@ -759,29 +1019,30 @@ def main():
             ticker
         )
 
-    successful_count = 0
+    # --------------------------------------------------------
+    # FETCH ONE COMPANY
+    # --------------------------------------------------------
 
-    for item in requested:
+    def fetch_one(item):
 
         ticker = item['ticker']
         cik = item['cik']
 
         url = (
             f'{COMMON}/api/xbrl/'
-            f'companyfacts/'
-            f'CIK{cik}.json'
+            f'companyfacts/CIK{cik}.json'
+        )
+
+        print(
+            f'FETCH {ticker} '
+            f'CIK={cik}'
         )
 
         try:
 
-            print(
-                f'FETCH {ticker} '
-                f'CIK={cik}'
-            )
-
             facts = get_json(
                 url,
-                HEADERS
+                DATA_HEADERS
             )
 
             record = build_company(
@@ -791,42 +1052,85 @@ def main():
             )
 
             clean = {
+
                 k: v
+
                 for k, v in record.items()
+
                 if (
                     v is not None
                     or k.startswith('__')
                 )
             }
 
-            result[ticker] = clean
+            return (
+                ticker,
+                clean,
+                None
+            )
+
+        except Exception as exc:
+
+            return (
+                ticker,
+                None,
+                str(exc)
+            )
+
+    # --------------------------------------------------------
+    # IMPORTANT:
+    # SEC REQUESTS ARE NOW SEQUENTIAL.
+    #
+    # We deliberately do NOT use ThreadPoolExecutor.
+    # This reduces simultaneous automated requests.
+    # --------------------------------------------------------
+
+    successful_this_run = 0
+
+    for item in requested:
+
+        ticker, record, error = (
+            fetch_one(item)
+        )
+
+        if record is not None:
+
+            result[ticker] = record
 
             previous_failures.pop(
                 ticker,
                 None
             )
 
-            successful_count += 1
+            successful_this_run += 1
 
             print(
                 f'OK {ticker}'
             )
 
-        except Exception as exc:
+        else:
 
-            previous_failures[
-                ticker
-            ] = str(exc)
-
-            print(
-                f'FAIL {ticker}: {exc}'
+            previous_failures[ticker] = (
+                error
             )
 
-        # Stay comfortably below SEC's
-        # published fair-access rate.
-        time.sleep(0.5)
+            print(
+                f'FAIL {ticker}: {error}'
+            )
+
+        # ----------------------------------------------------
+        # Stay comfortably below SEC rate limits.
+        # One request every ~0.6 sec.
+        # ----------------------------------------------------
+
+        time.sleep(0.6)
+
+    # --------------------------------------------------------
+    # OUTPUT
+    # --------------------------------------------------------
 
     payload = {
+
         'updated_at':
             datetime.now(
                 timezone.utc
@@ -842,11 +1146,15 @@ def main():
             previous_failures,
 
         'stats': {
+
             'requested_stock_tickers':
                 len(requested),
 
             'successful_records':
-                successful_count,
+                len(result),
+
+            'successful_this_run':
+                successful_this_run,
 
             'failed_tickers':
                 len(previous_failures),
@@ -854,6 +1162,7 @@ def main():
     }
 
     OUT.write_text(
+
         json.dumps(
             payload,
             ensure_ascii=False,
@@ -862,15 +1171,20 @@ def main():
                 ':'
             )
         ),
+
         encoding='utf-8'
     )
 
     print(
         f'Wrote {OUT}: '
-        f'{successful_count} new/updated records, '
+        f'{successful_this_run} new/updated records, '
         f'{len(previous_failures)} failed/skipped records.'
     )
 
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
 
 if __name__ == '__main__':
     main()
