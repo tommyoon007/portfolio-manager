@@ -11,7 +11,6 @@ OUT = Path('sec_financials.json')
 TICKERS_FILE = Path('sec_tickers.json')
 
 # SEC requires a declared User-Agent with meaningful contact information.
-# GitHub Actions supplies SEC_CONTACT_EMAIL as a Secret.
 contact_email = os.environ.get('SEC_CONTACT_EMAIL', '').strip()
 
 if not contact_email:
@@ -22,19 +21,16 @@ if not contact_email:
 
 UA = (
     'PortfolioManager/1.0 '
-    f'(GitHub Actions; {contact_email}; '
+    f'({contact_email}; '
     'https://github.com/tommyoon007/portfolio-manager)'
 )
 
 HEADERS = {
     'User-Agent': UA,
-    'Accept': 'application/json, text/plain, */*',
+    'Accept': 'application/json',
     'Accept-Encoding': 'gzip, deflate',
-    'Host': 'www.sec.gov',
+    'Host': 'data.sec.gov',
 }
-
-DATA_HEADERS = dict(HEADERS)
-DATA_HEADERS['Host'] = 'data.sec.gov'
 
 COMMON = 'https://data.sec.gov'
 
@@ -47,38 +43,55 @@ def num(v):
         return None
 
 
-def get_json(url, headers, timeout=(10, 20)):
-    """Fetch one SEC JSON document with a hard timeout and no retry loop.
-
-    A single failed ticker must never hold the whole GitHub Action open for
-    minutes. The caller records the failure and continues with other tickers.
-    """
+def get_json(url, headers, timeout=(15, 30)):
     try:
-        r = requests.get(url, headers=headers, timeout=timeout)
+        r = requests.get(
+            url,
+            headers=headers,
+            timeout=timeout
+        )
     except requests.RequestException as exc:
-        raise RuntimeError(f"SEC request failed: {url} — {exc}") from exc
+        raise RuntimeError(
+            f'SEC request failed: {url} — {exc}'
+        ) from exc
 
-    content_type = (r.headers.get('content-type') or '').lower()
+    content_type = (
+        r.headers.get('content-type') or ''
+    ).lower()
 
     if r.status_code != 200:
-        body = r.text[:160].replace('\n', ' ')
+        body = (
+            r.text[:1000]
+            .replace('\n', ' ')
+            .replace('\r', ' ')
+        )
+
         raise RuntimeError(
-            f"SEC HTTP {r.status_code} for {url}; "
-            f"content-type={content_type}; body={body}"
+            f'SEC HTTP {r.status_code} for {url}; '
+            f'content-type={content_type}; '
+            f'body={body}'
         )
 
     text = r.text.lstrip('\ufeff').strip()
 
     if not text:
-        raise RuntimeError(f"Empty SEC response: {url}")
+        raise RuntimeError(
+            f'Empty SEC response: {url}'
+        )
 
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
-        preview = text[:160].replace('\n', ' ')
+        preview = (
+            text[:1000]
+            .replace('\n', ' ')
+            .replace('\r', ' ')
+        )
+
         raise RuntimeError(
-            f"SEC returned non-JSON content for {url}; "
-            f"content-type={content_type}; preview={preview}"
+            f'SEC returned non-JSON content for {url}; '
+            f'content-type={content_type}; '
+            f'preview={preview}'
         ) from exc
 
 
@@ -130,8 +143,12 @@ def quarter_values(arr):
 
     for r in duration_facts(arr):
         try:
-            start = datetime.fromisoformat(r['start'])
-            end = datetime.fromisoformat(r['end'])
+            start = datetime.fromisoformat(
+                r['start']
+            )
+            end = datetime.fromisoformat(
+                r['end']
+            )
             days = (end - start).days
         except Exception:
             continue
@@ -154,7 +171,10 @@ def ttm_from_quarters(arr):
     q = quarter_values(arr)
 
     if len(q) >= 4:
-        return sum(x['val'] for x in q[-4:])
+        return sum(
+            x['val']
+            for x in q[-4:]
+        )
 
     return None
 
@@ -177,21 +197,47 @@ def latest_q_growth(arr):
 def fact_latest(arr):
     rows = instant_facts(arr)
 
-    return rows[-1]['val'] if rows else None
+    return (
+        rows[-1]['val']
+        if rows
+        else None
+    )
 
 
 def fact_duration_latest(arr):
     rows = duration_facts(arr)
 
-    return rows[-1]['val'] if rows else None
+    return (
+        rows[-1]['val']
+        if rows
+        else None
+    )
 
 
-def arr_for(facts_all, taxonomy, tags, unit):
-    base = facts_all.get(taxonomy, {})
+def arr_for(
+    facts_all,
+    taxonomy,
+    tags,
+    unit
+):
+    base = facts_all.get(
+        taxonomy,
+        {}
+    )
 
     for tag in tags:
-        obj = base.get(tag, {})
-        arr = obj.get('units', {}).get(unit, [])
+        obj = base.get(
+            tag,
+            {}
+        )
+
+        arr = obj.get(
+            'units',
+            {}
+        ).get(
+            unit,
+            []
+        )
 
         if arr:
             return arr
@@ -199,8 +245,15 @@ def arr_for(facts_all, taxonomy, tags, unit):
     return []
 
 
-def build_company(ticker, cik, payload):
-    facts_all = payload.get('facts', {})
+def build_company(
+    ticker,
+    cik,
+    payload
+):
+    facts_all = payload.get(
+        'facts',
+        {}
+    )
 
     revenue_arr = arr_for(
         facts_all,
@@ -273,64 +326,89 @@ def build_company(ticker, cik, payload):
     )
 
     revenue_ttm = (
-        ttm_from_quarters(revenue_arr)
-        or fact_duration_latest(revenue_arr)
+        ttm_from_quarters(
+            revenue_arr
+        )
+        or fact_duration_latest(
+            revenue_arr
+        )
     )
 
     ni_ttm = (
-        ttm_from_quarters(ni_arr)
-        or fact_duration_latest(ni_arr)
+        ttm_from_quarters(
+            ni_arr
+        )
+        or fact_duration_latest(
+            ni_arr
+        )
     )
 
     ocf_ttm = (
-        ttm_from_quarters(ocf_arr)
-        or fact_duration_latest(ocf_arr)
+        ttm_from_quarters(
+            ocf_arr
+        )
+        or fact_duration_latest(
+            ocf_arr
+        )
     )
 
     capex_ttm = (
-        ttm_from_quarters(capex_arr)
-        or fact_duration_latest(capex_arr)
+        ttm_from_quarters(
+            capex_arr
+        )
+        or fact_duration_latest(
+            capex_arr
+        )
     )
 
     fcf = (
         ocf_ttm - abs(capex_ttm)
-        if ocf_ttm is not None and capex_ttm is not None
+        if (
+            ocf_ttm is not None
+            and capex_ttm is not None
+        )
         else None
     )
 
     opinc_ttm = (
-        ttm_from_quarters(opinc_arr)
-        or fact_duration_latest(opinc_arr)
+        ttm_from_quarters(
+            opinc_arr
+        )
+        or fact_duration_latest(
+            opinc_arr
+        )
     )
 
     interest_ttm = (
-        ttm_from_quarters(interest_arr)
-        or fact_duration_latest(interest_arr)
+        ttm_from_quarters(
+            interest_arr
+        )
+        or fact_duration_latest(
+            interest_arr
+        )
     )
 
     da_ttm = (
-        ttm_from_quarters(da_arr)
-        or fact_duration_latest(da_arr)
+        ttm_from_quarters(
+            da_arr
+        )
+        or fact_duration_latest(
+            da_arr
+        )
     )
 
     ebitda = (
         opinc_ttm + abs(da_ttm)
-        if opinc_ttm is not None and da_ttm is not None
+        if (
+            opinc_ttm is not None
+            and da_ttm is not None
+        )
         else None
     )
 
-    us = facts_all.get('us-gaap', {})
-
-    assets = fact_latest(
-        us.get('Assets', {})
-        .get('units', {})
-        .get('USD', [])
-    )
-
-    liabilities = fact_latest(
-        us.get('Liabilities', {})
-        .get('units', {})
-        .get('USD', [])
+    us = facts_all.get(
+        'us-gaap',
+        {}
     )
 
     equity = None
@@ -390,17 +468,34 @@ def build_company(ticker, cik, payload):
         )
 
         if v is not None:
-            debt += max(0, v)
+            debt += max(
+                0,
+                v
+            )
 
-    dei = facts_all.get('dei', {})
-
-    shobj = (
-        dei.get('EntityCommonStockSharesOutstanding', {})
-        .get('units', {})
-        .get('shares', [])
+    dei = facts_all.get(
+        'dei',
+        {}
     )
 
-    shares_rows = instant_facts(shobj)
+    shobj = (
+        dei.get(
+            'EntityCommonStockSharesOutstanding',
+            {}
+        )
+        .get(
+            'units',
+            {}
+        )
+        .get(
+            'shares',
+            []
+        )
+    )
+
+    shares_rows = instant_facts(
+        shobj
+    )
 
     shares = (
         shares_rows[-1]['val']
@@ -409,13 +504,18 @@ def build_company(ticker, cik, payload):
     )
 
     return {
-        'RevenueTTM': revenue_ttm,
+        'RevenueTTM':
+            revenue_ttm,
 
         'QuarterlyRevenueGrowthYOY':
-            latest_q_growth(revenue_arr),
+            latest_q_growth(
+                revenue_arr
+            ),
 
         'QuarterlyEarningsGrowthYOY':
-            latest_q_growth(ni_arr),
+            latest_q_growth(
+                ni_arr
+            ),
 
         'OperatingIncomeTTM':
             opinc_ttm,
@@ -425,31 +525,53 @@ def build_company(ticker, cik, payload):
 
         'OperatingMarginTTM':
             (
-                opinc_ttm / revenue_ttm * 100
-                if opinc_ttm is not None and revenue_ttm
+                opinc_ttm /
+                revenue_ttm *
+                100
+                if (
+                    opinc_ttm is not None
+                    and revenue_ttm
+                )
                 else None
             ),
 
         'ReturnOnEquityTTM':
             (
-                ni_ttm / equity * 100
-                if ni_ttm is not None
-                and equity not in (None, 0)
+                ni_ttm /
+                equity *
+                100
+                if (
+                    ni_ttm is not None
+                    and equity not in (
+                        None,
+                        0
+                    )
+                )
                 else None
             ),
 
         'DebtToEquity':
             (
-                debt / equity * 100
-                if equity not in (None, 0)
+                debt /
+                equity *
+                100
+                if equity not in (
+                    None,
+                    0
+                )
                 else None
             ),
 
         'CurrentRatio':
             (
                 ca / cl
-                if ca is not None
-                and cl not in (None, 0)
+                if (
+                    ca is not None
+                    and cl not in (
+                        None,
+                        0
+                    )
+                )
                 else None
             ),
 
@@ -463,9 +585,11 @@ def build_company(ticker, cik, payload):
             ebitda,
 
         'InterestExpenseTTM':
-            abs(interest_ttm)
-            if interest_ttm is not None
-            else None,
+            (
+                abs(interest_ttm)
+                if interest_ttm is not None
+                else None
+            ),
 
         'SharesOutstanding':
             shares,
@@ -507,20 +631,27 @@ def build_company(ticker, cik, payload):
             cik,
 
         '__updatedAt':
-            datetime.now(timezone.utc).isoformat(),
+            datetime.now(
+                timezone.utc
+            ).isoformat(),
     }
 
 
 def main():
+
     tickers = json.loads(
         TICKERS_FILE.read_text(
             encoding='utf-8'
         )
     )
 
-    if not isinstance(tickers, list):
+    if not isinstance(
+        tickers,
+        list
+    ):
         raise RuntimeError(
-            'sec_tickers.json must contain a JSON array of ticker symbols.'
+            'sec_tickers.json must contain '
+            'a JSON array of ticker symbols.'
         )
 
     mapping_file = Path(
@@ -538,9 +669,13 @@ def main():
         )
     )
 
-    if not isinstance(raw_mapping, dict):
+    if not isinstance(
+        raw_mapping,
+        dict
+    ):
         raise RuntimeError(
-            'sec_ticker_to_cik.json must contain an object.'
+            'sec_ticker_to_cik.json must '
+            'contain an object.'
         )
 
     by_ticker = {
@@ -550,8 +685,6 @@ def main():
         if k and v
     }
 
-    # Keep the last good data.
-    # A temporary SEC failure must not wipe the file.
     result = {}
     previous_failures = {}
 
@@ -563,7 +696,10 @@ def main():
                 )
             )
 
-            if isinstance(previous, dict):
+            if isinstance(
+                previous,
+                dict
+            ):
 
                 if isinstance(
                     previous.get('data'),
@@ -588,16 +724,23 @@ def main():
             )
 
     requested = []
-
     existing_tickers = set()
 
     for raw in tickers:
-        ticker = str(raw).upper().strip()
 
-        if not ticker or ticker in existing_tickers:
+        ticker = str(
+            raw
+        ).upper().strip()
+
+        if (
+            not ticker
+            or ticker in existing_tickers
+        ):
             continue
 
-        cik = by_ticker.get(ticker)
+        cik = by_ticker.get(
+            ticker
+        )
 
         if not cik:
             print(
@@ -612,26 +755,33 @@ def main():
             'cik': cik
         })
 
-        existing_tickers.add(ticker)
+        existing_tickers.add(
+            ticker
+        )
 
-    from concurrent.futures import (
-        ThreadPoolExecutor,
-        as_completed
-    )
+    successful_count = 0
 
-    def fetch_one(item):
+    for item in requested:
+
         ticker = item['ticker']
         cik = item['cik']
 
         url = (
             f'{COMMON}/api/xbrl/'
-            f'companyfacts/CIK{cik}.json'
+            f'companyfacts/'
+            f'CIK{cik}.json'
         )
 
         try:
+
+            print(
+                f'FETCH {ticker} '
+                f'CIK={cik}'
+            )
+
             facts = get_json(
                 url,
-                DATA_HEADERS
+                HEADERS
             )
 
             record = build_company(
@@ -643,59 +793,44 @@ def main():
             clean = {
                 k: v
                 for k, v in record.items()
-                if v is not None
-                or k.startswith('__')
+                if (
+                    v is not None
+                    or k.startswith('__')
+                )
             }
 
-            return ticker, clean, None
+            result[ticker] = clean
+
+            previous_failures.pop(
+                ticker,
+                None
+            )
+
+            successful_count += 1
+
+            print(
+                f'OK {ticker}'
+            )
 
         except Exception as exc:
-            return ticker, None, str(exc)
 
-    # Four concurrent requests stays below SEC's
-    # 10 requests/second fair-access ceiling.
-    with ThreadPoolExecutor(
-        max_workers=4
-    ) as pool:
+            previous_failures[
+                ticker
+            ] = str(exc)
 
-        futures = [
-            pool.submit(
-                fetch_one,
-                item
-            )
-            for item in requested
-        ]
-
-        for future in as_completed(futures):
-
-            ticker, record, error = (
-                future.result()
+            print(
+                f'FAIL {ticker}: {exc}'
             )
 
-            if record is not None:
-
-                result[ticker] = record
-
-                previous_failures.pop(
-                    ticker,
-                    None
-                )
-
-                print(
-                    f'OK {ticker}'
-                )
-
-            else:
-
-                previous_failures[ticker] = error
-
-                print(
-                    f'FAIL {ticker}: {error}'
-                )
+        # Stay comfortably below SEC's
+        # published fair-access rate.
+        time.sleep(0.5)
 
     payload = {
         'updated_at':
-            datetime.now(timezone.utc).isoformat(),
+            datetime.now(
+                timezone.utc
+            ).isoformat(),
 
         'source':
             'SEC EDGAR XBRL Companyfacts',
@@ -711,7 +846,7 @@ def main():
                 len(requested),
 
             'successful_records':
-                len(result),
+                successful_count,
 
             'failed_tickers':
                 len(previous_failures),
@@ -722,16 +857,18 @@ def main():
         json.dumps(
             payload,
             ensure_ascii=False,
-            separators=(',', ':')
+            separators=(
+                ',',
+                ':'
+            )
         ),
         encoding='utf-8'
     )
 
     print(
-        f"Wrote {OUT}: "
-        f"{len(result)} records, "
-        f"{len(previous_failures)} "
-        f"failed/skipped records."
+        f'Wrote {OUT}: '
+        f'{successful_count} new/updated records, '
+        f'{len(previous_failures)} failed/skipped records.'
     )
 
 
