@@ -4166,7 +4166,7 @@
 
           else if (
             score !== null &&
-            score < 40
+            score < 50
           ) {
 
             scoreClass =
@@ -6700,12 +6700,24 @@
 
   /* =========================================================
      추천 비중 계산
+     중요: 추천 대상은 사용자가 현재 입력해 저장한 holdings만 사용합니다.
+     ETF_SCORE_GROUPS는 입력 가능한 ETF의 평가 기준일 뿐,
+     추천 후보 종목을 자동으로 추가하는 목록이 아닙니다.
   ========================================================= */
+
+  function getRecommendationHoldings() {
+    return holdings.filter(item =>
+      item &&
+      String(item.ticker || '').trim() !== ''
+    );
+  }
 
   async function calculateRecommendedWeights() {
 
+    const recommendationHoldings = getRecommendationHoldings();
+
     if (
-      holdings.length === 0
+      recommendationHoldings.length === 0
     ) {
 
       alert(
@@ -6783,7 +6795,7 @@
       return !!(row && row.RevenueTTM !== undefined && (row.FreeCashFlowTTM !== undefined || row.OperatingCashflow !== undefined));
     };
 
-    const needsAnyApiCall = holdings.some(item => {
+    const needsAnyApiCall = recommendationHoldings.some(item => {
       const type = detectAssetType(item.ticker, null);
       return type === "STOCK" && !hasFreshFundamentalCache(item.ticker) && !hasSecData(item.ticker);
     });
@@ -6800,7 +6812,7 @@
 
       for (
         let i = 0;
-        i < holdings.length;
+        i < recommendationHoldings.length;
         i++
       ) {
 
@@ -6816,7 +6828,7 @@
             i + 1
           ) +
           "/" +
-          holdings.length +
+          recommendationHoldings.length +
           ")";
 
 
@@ -7010,7 +7022,7 @@
 
 
         if (
-          i < holdings.length - 1 &&
+          i < recommendationHoldings.length - 1 &&
           usedFundamentalApi &&
           !rateLimited
         ) {
