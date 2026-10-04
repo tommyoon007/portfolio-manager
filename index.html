@@ -1208,7 +1208,7 @@
       현재 비중 · 목표 비중 · 추천 비중 · 리밸런싱을 한눈에 관리합니다.
     </div>
 
-    <div class="build-version">Portfolio Manager · SEC Financials</div>
+    <div class="build-version">Portfolio Manager</div>
 
     <div id="lastUpdated" class="last-updated">최종 업데이트: 아직 없음</div>
 
@@ -1271,7 +1271,7 @@
       브라우저의 LocalStorage에 저장합니다.
 
       시세는 Twelve Data 배치 API를 사용해 여러 종목을 한 번에 조회하고,
-      재무 데이터는 SEC EDGAR를 우선 사용하고, 회사명·밸류에이션 등 시장 데이터가 필요할 때 Alpha Vantage를 보조로 사용합니다. API Key는 브라우저 LocalStorage에 저장됩니다.
+      재무 데이터는 SEC EDGAR XBRL을 1차 원천으로 사용하고, SEC에 없는 보조지표만 Alpha Vantage 캐시/API를 사용합니다. 두 API Key는 브라우저 LocalStorage에 저장됩니다.
 
     </div>
 
@@ -1577,7 +1577,7 @@
 
     <div class="dashboard-note">
       시세는 Twelve Data 우선 + Alpha Vantage 제한적 보조조회 + 캐시 구조입니다.<br>
-      재무데이터는 SEC EDGAR 우선 + Alpha Vantage 시장데이터 보조 구조입니다. 추천점수는 원천 재무데이터의 가용성을 반영한 상대점수이며, 매매 신호나 미래수익률 예측값이 아닙니다.
+      추천점수는 원천 재무데이터의 가용성을 반영한 상대점수이며, 매매 신호나 미래수익률 예측값이 아닙니다.
     </div>
 
     <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:10px 0 8px;">
@@ -1741,6 +1741,10 @@
   const FUNDAMENTAL_CACHE_KEY =
     "portfolio_manager_fundamental_cache_v1";
 
+  const SEC_DATA_URL = "./sec_financials.json";
+  let secFinancialData = null;
+  let secFinancialDataLoadedAt = 0;
+
   const CASH_BALANCE_KEY =
     "portfolio_manager_cash_balance_v1";
 
@@ -1824,14 +1828,6 @@
   let priceCache = {};
 
   let fundamentalCache = {};
-
-  // SEC EDGAR에서 GitHub Actions가 생성한 정식 재무데이터입니다.
-  // 앱에는 사용자가 실제로 입력한 holdings만 표시되며,
-  // 이 파일은 해당 holdings의 재무데이터를 조회할 때만 사용됩니다.
-  const SEC_FINANCIALS_URL = "./sec_financials.json";
-  let secFinancials = null;
-  let secFinancialsLoaded = false;
-  let secFinancialsLoadPromise = null;
 
   let lastUpdatedAt =
     localStorage.getItem(
@@ -2933,6 +2929,19 @@
               <div class="detail-score-item">
 
                 <div class="detail-score-label">
+                  FCF
+                </div>
+
+                <div class="detail-score-value">
+                  ${neutral ? "중립" : (Number.isFinite(Number(details.freeCashFlow)) ? Number(details.freeCashFlow).toFixed(1) + " / 10" : "데이터 없음")}
+                </div>
+
+              </div>
+
+
+              <div class="detail-score-item">
+
+                <div class="detail-score-label">
                   밸류에이션
                 </div>
 
@@ -3605,7 +3614,7 @@
           </div>
           <div class="mobile-detail-item">
             <span>FCF</span>
-            <strong>${Number(details.freeCashFlow || 0).toFixed(1)} / 10</strong>
+            <strong>${details.freeCashFlow === null || details.freeCashFlow === undefined ? "-" : Number(details.freeCashFlow).toFixed(1)} / 10</strong>
           </div>
           <div class="mobile-detail-item">
             <span>밸류에이션</span>
@@ -3784,7 +3793,7 @@
         const scoreClass =
           score !== null && score >= 70
             ? "positive"
-            : score !== null && score < 50
+            : score !== null && score < 40
               ? "negative"
               : "neutral";
 
@@ -4845,174 +4854,658 @@
      재무 캐시 유효성
   ========================================================= */
 
-  async function loadSecFinancials() {
-
-    if (secFinancialsLoaded) {
-      return secFinancials || {};
-    }
-
-    if (secFinancialsLoadPromise) {
-      return secFinancialsLoadPromise;
-    }
-
-    secFinancialsLoadPromise = (async () => {
-      try {
-        const response = await fetch(
-          SEC_FINANCIALS_URL + "?v=" + Date.now(),
-          { cache: "no-store" }
-        );
-
-        if (!response.ok) {
-          throw new Error("SEC 재무파일 HTTP " + response.status);
-        }
-
-        const payload = await response.json();
-        secFinancials =
-          payload && payload.data && typeof payload.data === "object"
-            ? payload.data
-            : {};
-
-        secFinancialsLoaded = true;
-        return secFinancials;
-      } catch (error) {
-        console.warn("SEC 재무데이터 로드 실패:", error);
-        secFinancials = {};
-        secFinancialsLoaded = true;
-        return {};
-      } finally {
-        secFinancialsLoadPromise = null;
-      }
-    })();
-
-    return secFinancialsLoadPromise;
-  }
-
-  function getSecRecord(ticker) {
-    const symbol = String(ticker || "").trim().toUpperCase();
-    if (!secFinancials || !symbol) return null;
-    return secFinancials[symbol] || null;
-  }
-
-  function mergeFundamentalData(secData, marketData) {
-    const sec = secData && typeof secData === "object" ? secData : {};
-    const market = marketData && typeof marketData === "object" ? marketData : {};
-
-    // 시장데이터(회사명/PE/PEG/PSR/EV-EBITDA/시가총액)는 Alpha Vantage를 우선.
-    // 회계·재무데이터는 SEC EDGAR를 우선.
-    return {
-      ...market,
-      ...sec,
-      Name: market.Name || sec.Name || "",
-      AssetType: market.AssetType || "Common Stock",
-      __secSource: sec.__source || null,
-      __secUpdatedAt: sec.__updatedAt || null
-    };
-  }
-
   function hasFreshFundamentalCache(ticker) {
 
     const cached = fundamentalCache[ticker];
 
-    if (cached && cached.savedAt && cached.data) {
-      const age = Date.now() - new Date(cached.savedAt).getTime();
-      const sevenDays = 7 * 24 * 60 * 60 * 1000;
-      if (Number.isFinite(age) && age >= 0 && age < sevenDays) {
-        return true;
-      }
+    if (!cached || !cached.savedAt || !cached.data) {
+      return false;
     }
 
-    // SEC Companyfacts 데이터가 있으면 Alpha Vantage 재무 API 호출이 필요 없습니다.
-    return !!getSecRecord(ticker);
+    const age = Date.now() - new Date(cached.savedAt).getTime();
+    const sevenDays = 7 * 24 * 60 * 60 * 1000;
+
+    return Number.isFinite(age) && age >= 0 && age < sevenDays;
+
   }
 
 
   /* =========================================================
-     재무 데이터 조회
-     - SEC EDGAR 재무데이터 우선
-     - Alpha Vantage는 시장 기반 밸류에이션/회사명 보조용
-     - SEC 데이터가 없으면 기존 Alpha Vantage 방식으로 fallback
+     SEC XBRL 재무 데이터 — 1차 원천
+     GitHub Actions가 SEC EDGAR에서 갱신한 JSON을 읽습니다.
+     SEC data.sec.gov는 브라우저 CORS를 지원하지 않으므로
+     정적 GitHub Pages에서 직접 호출하지 않습니다.
   ========================================================= */
 
-  async function getFundamentals(ticker) {
+  async function loadSecFinancialData() {
+    if (secFinancialData && Date.now() - secFinancialDataLoadedAt < 300000) {
+      return secFinancialData;
+    }
+    try {
+      const response = await fetch(SEC_DATA_URL + "?v=" + Date.now(), { cache: "no-store" });
+      if (!response.ok) throw new Error("SEC 데이터 파일 HTTP " + response.status);
+      const payload = await response.json();
+      secFinancialData = payload && payload.data && typeof payload.data === "object" ? payload.data : {};
+      secFinancialDataLoadedAt = Date.now();
+      return secFinancialData;
+    } catch (error) {
+      console.warn("SEC 재무 데이터 로드 실패:", error);
+      secFinancialData = {};
+      secFinancialDataLoadedAt = Date.now();
+      return secFinancialData;
+    }
+  }
 
-    const symbol = String(ticker || "").trim().toUpperCase();
-    if (!symbol) throw new Error("티커가 없습니다.");
+  /* =========================================================
+     재무 데이터 조회
+  ========================================================= */
 
-    const cached = fundamentalCache[symbol];
-    const sevenDays = 7 * 24 * 60 * 60 * 1000;
+  async function getFundamentals(
+    ticker
+  ) {
 
-    if (cached && cached.savedAt && cached.data) {
-      const age = Date.now() - new Date(cached.savedAt).getTime();
-      if (Number.isFinite(age) && age >= 0 && age < sevenDays) {
-        return cached.data;
+    const secData = await loadSecFinancialData();
+    const secItem = secData[String(ticker || "").toUpperCase()];
+
+    if (secItem && secItem.RevenueTTM !== undefined && (secItem.FreeCashFlowTTM !== undefined || secItem.OperatingCashflow !== undefined)) {
+      const cachedAlpha = fundamentalCache[ticker];
+      // SEC를 회계 데이터의 우선 원천으로 사용하고,
+      // 이미 캐시된 Alpha Vantage 데이터가 있으면 SEC에 없는 보조지표만 보완합니다.
+      const merged = {
+        ...(cachedAlpha && cachedAlpha.data ? cachedAlpha.data : {}),
+        ...secItem
+      };
+
+      // SEC TTM fields -> existing scoring-engine field names
+      if (merged.OperatingCashflow == null && merged.OperatingCashFlowTTM != null) {
+        merged.OperatingCashflow = merged.OperatingCashFlowTTM;
       }
+      if (merged.CapitalExpenditures == null && merged.CapExTTM != null) {
+        merged.CapitalExpenditures = merged.CapExTTM;
+      }
+      if (merged.FreeCashFlow == null && merged.FreeCashFlowTTM != null) {
+        merged.FreeCashFlow = merged.FreeCashFlowTTM;
+      }
+
+      return {
+        ...merged,
+        __apiCallsUsed: 0,
+        __fcfAvailable: getFreeCashFlow(merged) !== null,
+        __source: "SEC XBRL"
+      };
     }
 
-    await loadSecFinancials();
-    const secData = getSecRecord(symbol);
+    const cached =
+      fundamentalCache[
+        ticker
+      ];
 
-    // SEC 데이터가 있으면 기본적으로 그대로 사용합니다.
-    // 다만 회사명/시장 밸류에이션 필드가 필요하므로 Alpha Vantage를
-    // 사용할 수 있을 때만 보조 조회합니다. API Key가 없으면 SEC만으로 계속 진행합니다.
-    let marketData = {};
-    const apiKey = localStorage.getItem(API_KEY_STORAGE);
+    const hasFcfData = data =>
+      data &&
+      (
+        firstNumber(
+          data,
+          [
+            "FreeCashFlow",
+            "FreeCashFlowTTM"
+          ]
+        ) !== null ||
+        (
+          firstNumber(
+            data,
+            [
+              "OperatingCashflow",
+              "OperatingCashFlow"
+            ]
+          ) !== null &&
+          firstNumber(
+            data,
+            [
+              "CapitalExpenditures",
+              "CapitalExpenditure",
+              "CapitalExpendituresTTM"
+            ]
+          ) !== null
+        )
+      );
 
-    if (apiKey) {
-      try {
+    const mergeCashFlow = (
+      overview,
+      cashFlow
+    ) => {
+
+      const quarterly =
+        Array.isArray(
+          cashFlow &&
+          cashFlow.quarterlyReports
+        )
+          ? cashFlow.quarterlyReports
+          : [];
+
+      const annual =
+        Array.isArray(
+          cashFlow &&
+          cashFlow.annualReports
+        )
+          ? cashFlow.annualReports
+          : [];
+
+      const directQuarterly =
+        quarterly
+          .slice(
+            0,
+            4
+          )
+          .map(
+            row =>
+              firstNumber(
+                row,
+                [
+                  "freeCashFlow",
+                  "FreeCashFlow"
+                ]
+              )
+          )
+          .filter(
+            value =>
+              value !== null
+          );
+
+      if (
+        directQuarterly.length === 4
+      ) {
+
+        overview.FreeCashFlowTTM =
+          directQuarterly.reduce(
+            (
+              sum,
+              value
+            ) =>
+              sum + value,
+            0
+          );
+
+      } else {
+
+        const ttmRows =
+          quarterly
+            .slice(
+              0,
+              4
+            );
+
+        const ocfValues =
+          ttmRows.map(
+            row =>
+              firstNumber(
+                row,
+                [
+                  "operatingCashflow",
+                  "operatingCashFlow",
+                  "OperatingCashflow",
+                  "OperatingCashFlow"
+                ]
+              )
+          );
+
+        const capexValues =
+          ttmRows.map(
+            row =>
+              firstNumber(
+                row,
+                [
+                  "capitalExpenditures",
+                  "capitalExpenditure",
+                  "CapitalExpenditures",
+                  "CapitalExpenditure"
+                ]
+              )
+          );
+
+        if (
+          ttmRows.length === 4 &&
+          ocfValues.every(
+            value =>
+              value !== null
+          ) &&
+          capexValues.every(
+            value =>
+              value !== null
+          )
+        ) {
+
+          overview.FreeCashFlowTTM =
+            ocfValues.reduce(
+              (
+                sum,
+                value
+              ) =>
+                sum + value,
+              0
+            ) -
+            capexValues.reduce(
+              (
+                sum,
+                value
+              ) =>
+                sum + Math.abs(value),
+              0
+            );
+
+        } else if (
+          annual.length > 0
+        ) {
+
+          const latest =
+            annual[0];
+
+          const ocf =
+            firstNumber(
+              latest,
+              [
+                "operatingCashflow",
+                "operatingCashFlow",
+                "OperatingCashflow",
+                "OperatingCashFlow"
+              ]
+            );
+
+          const capex =
+            firstNumber(
+              latest,
+              [
+                "capitalExpenditures",
+                "capitalExpenditure",
+                "CapitalExpenditures",
+                "CapitalExpenditure"
+              ]
+            );
+
+          if (
+            ocf !== null &&
+            capex !== null
+          ) {
+
+            overview.FreeCashFlowTTM =
+              ocf -
+              Math.abs(capex);
+
+          }
+
+        }
+
+      }
+
+      if (
+        quarterly.length > 0
+      ) {
+
+        const latest =
+          quarterly[0];
+
+        const latestOcf =
+          firstNumber(
+            latest,
+            [
+              "operatingCashflow",
+              "operatingCashFlow",
+              "OperatingCashflow",
+              "OperatingCashFlow"
+            ]
+          );
+
+        if (
+          latestOcf !== null &&
+          firstNumber(
+            overview,
+            [
+              "OperatingCashflow",
+              "OperatingCashFlow"
+            ]
+          ) === null
+        ) {
+
+          overview.OperatingCashflow =
+            latestOcf;
+
+        }
+
+      }
+
+      return overview;
+
+    };
+
+    const fetchCashFlow =
+      async () => {
+
+        const apiKey =
+          localStorage.getItem(
+            API_KEY_STORAGE
+          );
+
+        if (!apiKey) {
+          return {
+            data: null,
+            used: false
+          };
+        }
+
         const url =
           "https://www.alphavantage.co/query" +
-          "?function=OVERVIEW" +
-          "&symbol=" + encodeURIComponent(symbol) +
-          "&apikey=" + encodeURIComponent(apiKey);
+          "?function=CASH_FLOW" +
+          "&symbol=" +
+          encodeURIComponent(
+            ticker
+          ) +
+          "&apikey=" +
+          encodeURIComponent(
+            apiKey
+          );
 
-        const response = await fetch(url);
+        const response =
+          await fetch(
+            url
+          );
 
         if (!response.ok) {
-          throw new Error("재무 데이터 API 오류: " + response.status);
+          throw new Error(
+            "FCF 데이터 API 오류: " +
+            response.status
+          );
         }
 
-        const avData = await response.json();
+        const data =
+          await response.json();
 
-        if (avData && avData["Note"]) {
-          throw new Error("Alpha Vantage API 요청 제한");
+        if (
+          data &&
+          data["Note"]
+        ) {
+
+          throw new Error(
+            "Alpha Vantage API 요청 제한"
+          );
+
         }
 
-        if (avData && avData["Error Message"]) {
-          throw new Error(symbol + ": Alpha Vantage 데이터를 찾을 수 없습니다.");
+        if (
+          data &&
+          data["Error Message"]
+        ) {
+
+          throw new Error(
+            ticker +
+            ": 현금흐름 데이터를 찾을 수 없습니다."
+          );
+
         }
 
-        if (avData && Object.keys(avData).length > 0) {
-          marketData = avData;
-        }
-      } catch (error) {
-        // SEC 데이터가 있으면 Alpha 실패는 치명적 오류가 아닙니다.
-        if (!secData) {
-          throw error;
-        }
-        console.warn(symbol + " Alpha Vantage 보조조회 실패:", error);
+        return {
+          data,
+          used: true
+        };
+
+      };
+
+    if (
+      cached &&
+      cached.savedAt &&
+      cached.data
+    ) {
+
+      const age =
+        Date.now() -
+        new Date(
+          cached.savedAt
+        ).getTime();
+
+      const sevenDays =
+        7 *
+        24 *
+        60 *
+        60 *
+        1000;
+
+      if (
+        age < sevenDays &&
+        hasFcfData(
+          cached.data
+        )
+      ) {
+
+        return {
+          ...cached.data,
+          __apiCallsUsed: 0,
+          __fcfAvailable: true
+        };
+
       }
+
+      if (
+        age < sevenDays
+      ) {
+
+        try {
+
+          const cashFlow =
+            await fetchCashFlow();
+
+          if (
+            cashFlow.data
+          ) {
+
+            const merged =
+              mergeCashFlow(
+                {
+                  ...cached.data
+                },
+                cashFlow.data
+              );
+
+            fundamentalCache[
+              ticker
+            ] = {
+              savedAt:
+                new Date()
+                  .toISOString(),
+              data:
+                merged
+            };
+
+            localStorage.setItem(
+              FUNDAMENTAL_CACHE_KEY,
+              JSON.stringify(
+                fundamentalCache
+              )
+            );
+
+            return {
+              ...merged,
+              __apiCallsUsed:
+                cashFlow.used
+                  ? 1
+                  : 0,
+              __fcfAvailable:
+                hasFcfData(
+                  merged
+                )
+            };
+
+          }
+
+        } catch (
+          error
+        ) {
+
+          console.warn(
+            ticker +
+            " FCF 조회 실패:",
+            error
+          );
+
+          return {
+            ...cached.data,
+            __apiCallsUsed: 0,
+            __fcfAvailable:
+              hasFcfData(
+                cached.data
+              )
+          };
+
+        }
+
+        return {
+          ...cached.data,
+          __apiCallsUsed: 0,
+          __fcfAvailable:
+            hasFcfData(
+              cached.data
+            )
+        };
+
+      }
+
     }
 
-    if (!secData && Object.keys(marketData).length === 0) {
-      throw new Error(
-        symbol + ": SEC 재무데이터가 없고 Alpha Vantage API Key도 사용할 수 없습니다."
+    const apiKey =
+      localStorage.getItem(
+        API_KEY_STORAGE
       );
+
+    if (!apiKey) {
+
+      throw new Error(
+        "Alpha Vantage API Key가 없습니다."
+      );
+
     }
 
-    const data = mergeFundamentalData(secData, marketData);
-    data.__ticker = symbol;
+    const url =
+      "https://www.alphavantage.co/query" +
+      "?function=OVERVIEW" +
+      "&symbol=" +
+      encodeURIComponent(
+        ticker
+      ) +
+      "&apikey=" +
+      encodeURIComponent(
+        apiKey
+      );
 
-    fundamentalCache[symbol] = {
-      savedAt: new Date().toISOString(),
-      data: data
+    const response =
+      await fetch(
+        url
+      );
+
+    if (!response.ok) {
+
+      throw new Error(
+        "재무 데이터 API 오류: " +
+        response.status
+      );
+
+    }
+
+    const data =
+      await response.json();
+
+    if (
+      data["Note"]
+    ) {
+
+      throw new Error(
+        "Alpha Vantage API 요청 제한"
+      );
+
+    }
+
+    if (
+      data["Error Message"]
+    ) {
+
+      throw new Error(
+        ticker +
+        ": 재무 데이터를 찾을 수 없습니다."
+      );
+
+    }
+
+    if (
+      !data ||
+      Object.keys(data).length === 0
+    ) {
+
+      throw new Error(
+        ticker +
+        ": 재무 데이터가 없습니다."
+      );
+
+    }
+
+    let apiCallsUsed = 1;
+
+    try {
+
+      const cashFlow =
+        await fetchCashFlow();
+
+      if (
+        cashFlow.data
+      ) {
+
+        mergeCashFlow(
+          data,
+          cashFlow.data
+        );
+
+        if (
+          cashFlow.used
+        ) {
+          apiCallsUsed++;
+        }
+
+      }
+
+    } catch (
+      error
+    ) {
+
+      console.warn(
+        ticker +
+        " FCF 조회 실패:",
+        error
+      );
+
+    }
+
+    fundamentalCache[
+      ticker
+    ] = {
+      savedAt:
+        new Date()
+          .toISOString(),
+      data:
+        data
     };
 
     localStorage.setItem(
       FUNDAMENTAL_CACHE_KEY,
-      JSON.stringify(fundamentalCache)
+      JSON.stringify(
+        fundamentalCache
+      )
     );
 
-    return data;
+    return {
+      ...data,
+      __apiCallsUsed:
+        apiCallsUsed,
+      __fcfAvailable:
+        hasFcfData(
+          data
+        )
+    };
+
   }
 
 
@@ -6283,18 +6776,23 @@
     let rateLimited = false;
     const failures = [];
 
-    const needsAnyAlphaCall = holdings.some(item => {
+    const secDataForRecommendation = await loadSecFinancialData();
+
+    const hasSecData = ticker => {
+      const row = secDataForRecommendation[String(ticker || "").toUpperCase()];
+      return !!(row && row.RevenueTTM !== undefined && (row.FreeCashFlowTTM !== undefined || row.OperatingCashflow !== undefined));
+    };
+
+    const needsAnyApiCall = holdings.some(item => {
       const type = detectAssetType(item.ticker, null);
-      return type === "STOCK" &&
-        !getSecRecord(item.ticker) &&
-        !hasFreshFundamentalCache(item.ticker);
+      return type === "STOCK" && !hasFreshFundamentalCache(item.ticker) && !hasSecData(item.ticker);
     });
 
-    if (needsAnyAlphaCall && !apiKey) {
+    if (needsAnyApiCall && !apiKey) {
       button.disabled = false;
       status.className = "status error";
       status.textContent =
-        "SEC 재무데이터가 없는 종목은 Alpha Vantage API Key가 필요합니다.";
+        "신규 재무 데이터를 조회하려면 Alpha Vantage API Key가 필요합니다. 캐시된 데이터만 있는 경우에는 API Key 없이 계산할 수 있습니다.";
       return;
     }
 
@@ -6345,8 +6843,8 @@
 
           needsFundamentalApi =
             assetType === "STOCK" &&
-            !getSecRecord(item.ticker) &&
-            !hasFreshFundamentalCache(item.ticker);
+            !hasFreshFundamentalCache(item.ticker) &&
+            !hasSecData(item.ticker);
 
           if (
             assetType === "STOCK"
@@ -6359,7 +6857,6 @@
             }
 
             if (needsFundamentalApi) {
-              apiCalls++;
               usedFundamentalApi = true;
             }
 
@@ -6368,6 +6865,9 @@
                 item.ticker
               );
 
+            apiCalls += Number(
+              data.__apiCallsUsed || 0
+            );
 
             assetType =
               detectAssetType(
@@ -6379,6 +6879,28 @@
 
 
           data.__ticker = item.ticker;
+
+          // SEC에는 시장가격 기반 지표가 없으므로 현재가와 SEC 주식수/재무값으로 투명하게 계산합니다.
+          const secPrice = Number(item.currentPrice);
+          const secShares = firstNumber(data, ["SharesOutstanding"]);
+          const secRevenue = firstNumber(data, ["RevenueTTM"]);
+          const secNetIncome = firstNumber(data, ["NetIncomeTTM"]);
+          const secEbitda = firstNumber(data, ["EBITDA"]);
+          const secDebt = firstNumber(data, ["TotalDebt"]);
+          const secCash = firstNumber(data, ["Cash"]);
+          if (Number.isFinite(secPrice) && secPrice > 0 && secShares !== null) {
+            const marketCap = secPrice * secShares;
+            if (firstNumber(data, ["MarketCapitalization"]) === null) data.MarketCapitalization = marketCap;
+            if (firstNumber(data, ["PERatio", "TrailingPE"]) === null && secNetIncome !== null && secNetIncome > 0) {
+              data.PERatio = marketCap / secNetIncome;
+            }
+            if (firstNumber(data, ["PriceToSalesRatioTTM"]) === null && secRevenue !== null && secRevenue > 0) {
+              data.PriceToSalesRatioTTM = marketCap / secRevenue;
+            }
+            if (firstNumber(data, ["EVToEBITDA"]) === null && secEbitda !== null && secEbitda > 0 && secDebt !== null && secCash !== null) {
+              data.EVToEBITDA = (marketCap + secDebt - secCash) / secEbitda;
+            }
+          }
 
           const investmentStyle =
             detectInvestmentStyle(
