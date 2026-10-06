@@ -1649,12 +1649,12 @@
 
       <div style="margin-top:10px;">
 
-      <strong>추천 비중 엔진 v7</strong><br>
+      <strong>추천 비중 엔진 v8</strong><br>
 
       v7은 기존 펀더멘털 점수에 <strong>현재 보유종목 간 상대평가</strong>를 추가합니다.
       먼저 절대 펀더멘털 점수를 계산한 뒤, 현재 보유한 개별주식끼리
       성장·수익성·현금흐름·재무건전성·밸류에이션·위험 지표를 비교합니다.
-      최종 점수는 절대 펀더멘털 점수를 기준으로 하고, 보유종목 상대평가가 <strong>최대 ±15점 범위의 보정</strong>으로 들어갑니다. 따라서 전체 점수가 일괄적으로 내려가지 않습니다.
+      최종 점수는 <strong>절대평가 70% + 보유종목 상대평가 30%</strong>로 계산합니다.
 
       <br><br>
 
@@ -4933,18 +4933,25 @@
     const symbol = String(ticker || "").trim().toUpperCase();
     if (!symbol) throw new Error("티커가 없습니다.");
 
+    // 중요: SEC 데이터를 먼저 읽습니다.
+    // 기존 코드는 7일짜리 Alpha 캐시가 있으면 여기서 즉시 return하여
+    // 새로 생성된 sec_financials.json을 전혀 사용하지 않는 문제가 있었습니다.
+    await loadSecFinancials();
+    const secData = getSecRecord(symbol);
+
     const cached = fundamentalCache[symbol];
     const sevenDays = 7 * 24 * 60 * 60 * 1000;
 
     if (cached && cached.savedAt && cached.data) {
       const age = Date.now() - new Date(cached.savedAt).getTime();
       if (Number.isFinite(age) && age >= 0 && age < sevenDays) {
-        return cached.data;
+        // SEC 레코드가 있으면 오래된 캐시를 그대로 쓰지 않고
+        // 최신 SEC 회계데이터 + 기존 시장데이터를 합쳐서 사용합니다.
+        return secData
+          ? mergeFundamentalData(secData, cached.data)
+          : cached.data;
       }
     }
-
-    await loadSecFinancials();
-    const secData = getSecRecord(symbol);
 
     // SEC 데이터가 있으면 기본적으로 그대로 사용합니다.
     // 다만 회사명/시장 밸류에이션 필드가 필요하므로 Alpha Vantage를
@@ -5667,11 +5674,11 @@
   }
 
   /* =========================================================
-     추천 점수 엔진 v7 — 보유종목 상대평가
+     추천 점수 엔진 v8 — SEC + 캐시 병합 및 보유종목 상대평가
 
      v7 구조
-     1) 기존 절대 펀더멘털 점수를 기본점수로 사용
-     2) 현재 보유 개별주식 간 상대 백분위 점수로 최대 ±15점 보정
+     1) 기존 절대 펀더멘털 점수 = 70%
+     2) 현재 보유 개별주식 간 상대 백분위 점수 = 30%
      3) 데이터가 부족한 종목은 상대평가 기여도도 함께 낮춥니다.
 
      중요:
@@ -6429,6 +6436,10 @@
       }
     }
 
+    // 추천 계산 전에 SEC 파일을 확실히 로드합니다.
+    // 이 시점이 needsAnyAlphaCall보다 앞서야 SEC 보유종목을 정확히 인식합니다.
+    await loadSecFinancials();
+
     const scoredItems = [];
 
 
@@ -6438,12 +6449,6 @@
     let apiCalls = 0;
     let rateLimited = false;
     const failures = [];
-
-    // ★ 중요: SEC 파일을 먼저 메모리에 로드합니다.
-    // 기존 코드는 여기보다 앞에서 getSecRecord()를 호출했기 때문에
-    // 첫 추천 계산 시 SEC 데이터가 아직 로드되지 않은 상태로 판단되어
-    // 불필요하게 Alpha Vantage Key를 요구할 수 있었습니다.
-    await loadSecFinancials();
 
     const needsAnyAlphaCall = holdings.some(item => {
       const type = detectAssetType(item.ticker, null);
@@ -6456,7 +6461,7 @@
       button.disabled = false;
       status.className = "status error";
       status.textContent =
-        "SEC 재무데이터가 없는 종목에 필요한 Alpha Vantage API Key가 없습니다.";
+        "SEC 재무데이터가 없는 종목은 Alpha Vantage API Key가 필요합니다.";
       return;
     }
 
@@ -6676,28 +6681,6 @@
       if (mode !== "CUSTOM") {
         // v7: 전체 보유종목이 계산된 뒤에야 종목 간 상대평가가 가능합니다.
         applyV7RelativeScoring(scoredItems);
-
-        // 상대평가에서 갱신된 최종 점수/설명을 실제 결과 객체에도 반영합니다.
-        scoredItems.forEach(result => {
-          if (!result.details || result.details.neutral) return;
-          result.score = clamp(
-            Number(result.details.v7FinalScore ?? result.score) || 0,
-            0,
-            100
-          );
-          result.reason =
-            "자동 분석형 / v7 절대 " +
-            Number(result.details.v7AbsoluteScore || 0).toFixed(1) +
-            " / 상대 " +
-            Number(result.details.v7RelativeScore || 50).toFixed(1) +
-            " / 최종 " +
-            result.score.toFixed(1) +
-            " / 상대지표 " +
-            Number(result.details.v7RelativeMetricsUsed || 0) +
-            "개 / 데이터 " +
-            Number(result.details.dataQuality?.percent || 0).toFixed(0) +
-            "%";
-        });
       }
 
       if (mode === "CUSTOM") {
@@ -6729,7 +6712,7 @@
             .recommendationDetails = {
 
               score:
-                result.score,
+                result.details.score,
 
               rawScore:
                 result.details.rawScore,
@@ -6817,7 +6800,7 @@
         apiCalls +
         "회" +
         "<br>" +
-        "v7 자동 분석: 절대 펀더멘털을 기본으로 현재 보유종목 상대평가를 최대 ±15점 보정했습니다. 데이터 부족분은 상대평가 기여도와 신뢰도에 반영했습니다." +
+        "v8 자동 분석 완료: 최신 SEC 재무데이터를 우선 사용하고, 현재 보유종목 상대평가로 최종점수를 보정했습니다. 기존 재무 캐시는 SEC 데이터와 병합합니다." +
         (failures.length
           ? "<br><span style=\"color:#f6ad55\">일부 종목: " +
             escapeHtml(failures.slice(0, 3).join(" / ")) +
