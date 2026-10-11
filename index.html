@@ -3140,32 +3140,13 @@
 
 
             <div class="detail-quality">
-
-              데이터 확보율:
-              <strong>
-                ${qualityPercent.toFixed(0)}%
-              </strong>
-
-              ${
-                quality.available !== undefined &&
-                quality.total !== undefined
-
-                  ? " (" +
-                    quality.available +
-                    "/" +
-                    quality.total +
-                    "개 항목)"
-                  : ""
-              }
-
-              <br>
-
-              데이터가 없는 항목은
-              <span class="detail-neutral">
-                중립점수
-              </span>
-              로 계산됩니다.
-
+              <strong>지표 확보 현황</strong><br>
+              재무·현금흐름: ${quality.fundamental ? quality.fundamental.available + "/" + quality.fundamental.total + "개 (" + quality.fundamental.percent.toFixed(0) + "%)" : "확인 불가"}<br>
+              시장·밸류에이션: ${quality.market ? quality.market.available + "/" + quality.market.total + "개 (" + quality.market.percent.toFixed(0) + "%)" : "확인 불가"}<br>
+              미래 전망치: 현재 앱에서 애널리스트 매출/EPS 전망 데이터를 연결하지 않았습니다.<br>
+              주식 희석률은 현재 원천 데이터의 신뢰성 문제로 확보율 계산에서 제외했습니다.<br>
+              ${quality.missing && quality.missing.length ? "누락 항목: " + escapeHtml(quality.missing.join(" · ")) + "<br>" : ""}
+              데이터가 없는 항목은 <span class="detail-neutral">중립점수</span>로 계산됩니다. 확보율은 값 존재 여부만 나타내며, 최신성·정확성을 보증하지 않습니다.
             </div>
 
           </div>
@@ -3781,18 +3762,12 @@
         const qualityPercent = quality && quality.percent !== null && quality.percent !== undefined && Number.isFinite(Number(quality.percent))
           ? Number(quality.percent)
           : null;
-        const qualityLabel = qualityPercent === null
-          ? "데이터 확인 전"
-          : qualityPercent < 50
-            ? `데이터 부족 ${qualityPercent.toFixed(0)}%`
-            : `데이터 확보 ${qualityPercent.toFixed(0)}%`;
-        const qualityColor = qualityPercent === null
-          ? "#8d98a7"
-          : qualityPercent < 50
-            ? "#ff7979"
-            : qualityPercent < 75
-              ? "#f6ad55"
-              : "#79d7a5";
+        const qualityLabel = quality && quality.fundamental && quality.market
+          ? `재무 ${quality.fundamental.available}/${quality.fundamental.total} · 시장 ${quality.market.available}/${quality.market.total}`
+          : qualityPercent === null ? "데이터 확인 전" : `모델 입력 ${qualityPercent.toFixed(0)}%`;
+        const fundamentalPercent = quality && quality.fundamental ? Number(quality.fundamental.percent) : qualityPercent;
+        const qualityColor = fundamentalPercent === null || !Number.isFinite(fundamentalPercent)
+          ? "#8d98a7" : fundamentalPercent < 50 ? "#ff7979" : fundamentalPercent < 75 ? "#f6ad55" : "#79d7a5";
 
         const scoreClass =
           score !== null && score >= 70
@@ -4160,18 +4135,12 @@
           const qualityPercent = quality && quality.percent !== null && quality.percent !== undefined && Number.isFinite(Number(quality.percent))
             ? Number(quality.percent)
             : null;
-          const qualityLabel = qualityPercent === null
-            ? "데이터 확인 전"
-            : qualityPercent < 50
-              ? `데이터 부족 ${qualityPercent.toFixed(0)}%`
-              : `데이터 확보 ${qualityPercent.toFixed(0)}%`;
-          const qualityColor = qualityPercent === null
-            ? "#8d98a7"
-            : qualityPercent < 50
-              ? "#ff7979"
-              : qualityPercent < 75
-                ? "#f6ad55"
-                : "#79d7a5";
+          const qualityLabel = quality && quality.fundamental && quality.market
+          ? `재무 ${quality.fundamental.available}/${quality.fundamental.total} · 시장 ${quality.market.available}/${quality.market.total}`
+          : qualityPercent === null ? "데이터 확인 전" : `모델 입력 ${qualityPercent.toFixed(0)}%`;
+          const fundamentalPercent = quality && quality.fundamental ? Number(quality.fundamental.percent) : qualityPercent;
+        const qualityColor = fundamentalPercent === null || !Number.isFinite(fundamentalPercent)
+          ? "#8d98a7" : fundamentalPercent < 50 ? "#ff7979" : fundamentalPercent < 75 ? "#f6ad55" : "#79d7a5";
 
           let scoreClass =
             "neutral";
@@ -5683,34 +5652,42 @@
 
   function calculateDataQuality(data) {
     const hasNumber = fields => firstNumber(data, fields) !== null;
-    const checks = [
-      hasNumber(["QuarterlyRevenueGrowthYOY"]),
-      hasNumber(["QuarterlyEarningsGrowthYOY"]),
-      hasNumber(["OperatingMarginTTM"]),
-      hasNumber(["ReturnOnEquityTTM"]),
-      hasNumber(["DebtToEquity", "DebtEquityRatio"]),
-      hasNumber(["CurrentRatio"]),
-      hasNumber(["OperatingCashflow", "OperatingCashFlow"]),
-      getFreeCashFlow(data) !== null,
-      hasNumber(["RevenueTTM"]),
-      hasNumber(["MarketCapitalization"]),
-      hasNumber(["EBITDA"]),
-      hasNumber(["PEGRatio"]),
-      hasNumber(["ForwardPE", "PERatio", "TrailingPE"]),
-      hasNumber(["PriceToSalesRatioTTM"]),
-      hasNumber(["EVToEBITDA"]),
-      hasNumber(["Beta"]),
-      getNetDebtToEbitda(data) !== null,
-      getInterestCoverage(data) !== null,
-      getDilutionGap(data) !== null
+    const fundamentalChecks = [
+      ["매출 성장률", hasNumber(["QuarterlyRevenueGrowthYOY"])],
+      ["이익 성장률", hasNumber(["QuarterlyEarningsGrowthYOY"])],
+      ["영업이익률", hasNumber(["OperatingMarginTTM"])],
+      ["자기자본이익률(ROE)", hasNumber(["ReturnOnEquityTTM"])],
+      ["부채/자본", hasNumber(["DebtToEquity", "DebtEquityRatio"])],
+      ["유동비율", hasNumber(["CurrentRatio"])],
+      ["영업현금흐름", hasNumber(["OperatingCashflow", "OperatingCashFlow"])],
+      ["잉여현금흐름(FCF)", getFreeCashFlow(data) !== null],
+      ["최근 12개월 매출", hasNumber(["RevenueTTM"])],
+      ["EBITDA", hasNumber(["EBITDA"])],
+      ["순부채/EBITDA", getNetDebtToEbitda(data) !== null],
+      ["이자보상배율", getInterestCoverage(data) !== null]
     ];
-    const available = checks.filter(Boolean).length;
-    const total = checks.length;
-    return {
-      available,
-      total,
-      percent: total > 0 ? (available / total) * 100 : 0
+    const marketChecks = [
+      ["시가총액", hasNumber(["MarketCapitalization"])],
+      ["PER", hasNumber(["ForwardPE", "PERatio", "TrailingPE"])],
+      ["PEG", hasNumber(["PEGRatio"])],
+      ["주가/매출(PSR)", hasNumber(["PriceToSalesRatioTTM"])],
+      ["EV/EBITDA", hasNumber(["EVToEBITDA"])],
+      ["베타", hasNumber(["Beta"])]
+    ];
+    const summarize = checks => {
+      const available = checks.filter(x => x[1]).length;
+      return { available, total: checks.length, percent: checks.length ? available / checks.length * 100 : 0,
+        missing: checks.filter(x => !x[1]).map(x => x[0]) };
     };
+    const fundamental = summarize(fundamentalChecks);
+    const market = summarize(marketChecks);
+    const allChecks = fundamentalChecks.concat(marketChecks);
+    const available = allChecks.filter(x => x[1]).length;
+    const total = allChecks.length;
+    return { available, total, percent: total ? available / total * 100 : 0, fundamental, market,
+      missing: allChecks.filter(x => !x[1]).map(x => x[0]),
+      forward: { available: 0, total: 0, percent: null, missing: ["애널리스트 매출/EPS 전망치 미연동"] },
+      note: "주식 희석률은 현재 SEC 데이터 파일에서 보통주와 희석주식수가 동일하게 저장되는 경우가 있어 확보율 계산에서 제외했습니다." };
   }
 
   /* =========================================================
@@ -6835,10 +6812,15 @@
         Number.isFinite(Number(result.details.dataQuality.percent))
       );
       const averageQuality = qualityItems.length
-        ? qualityItems.reduce((sum, result) => sum + Number(result.details.dataQuality.percent), 0) / qualityItems.length
-        : null;
-      const lowQualityCount = qualityItems.filter(result => Number(result.details.dataQuality.percent) < 50).length;
-      const mediumQualityCount = qualityItems.filter(result => Number(result.details.dataQuality.percent) >= 50 && Number(result.details.dataQuality.percent) < 75).length;
+        ? qualityItems.reduce((sum, result) => sum + Number(result.details.dataQuality.percent), 0) / qualityItems.length : null;
+      const fundamentalQualityItems = qualityItems.filter(result => result.details.dataQuality.fundamental);
+      const marketQualityItems = qualityItems.filter(result => result.details.dataQuality.market);
+      const averageFundamental = fundamentalQualityItems.length
+        ? fundamentalQualityItems.reduce((sum, result) => sum + Number(result.details.dataQuality.fundamental.percent), 0) / fundamentalQualityItems.length : null;
+      const averageMarket = marketQualityItems.length
+        ? marketQualityItems.reduce((sum, result) => sum + Number(result.details.dataQuality.market.percent), 0) / marketQualityItems.length : null;
+      const lowQualityCount = fundamentalQualityItems.filter(result => Number(result.details.dataQuality.fundamental.percent) < 50).length;
+      const mediumQualityCount = fundamentalQualityItems.filter(result => Number(result.details.dataQuality.fundamental.percent) >= 50 && Number(result.details.dataQuality.fundamental.percent) < 75).length;
 
       status.innerHTML =
         "추천 계산 완료 — " +
@@ -6851,11 +6833,12 @@
         apiCalls +
         "회" +
         "<br>" +
-        "재무 데이터 평균 확보율: " +
-        (averageQuality === null ? "계산 불가" : averageQuality.toFixed(0) + "%") +
-        " / 데이터 부족(<50%): " + lowQualityCount + "개 / 부분 확보(50~74%): " + mediumQualityCount + "개" +
-        "<br>" +
-        "v9 데이터 신뢰도 표시 완료: 확보율은 값이 존재하는 지표의 비율이며, 최신성이나 정확성을 보증하지 않습니다." +
+        "재무·현금흐름 평균: " + (averageFundamental === null ? "계산 불가" : averageFundamental.toFixed(0) + "%") +
+        " / 시장·밸류에이션 평균: " + (averageMarket === null ? "계산 불가" : averageMarket.toFixed(0) + "%") +
+        "<br>재무 지표 부족(<50%): " + lowQualityCount + "개 / 부분 확보(50~74%): " + mediumQualityCount + "개" +
+        "<br>미래 매출·EPS 전망치는 현재 미연동 상태이며 위 확보율 계산에서 제외했습니다." +
+        "<br>전체 입력지표 확보율(점수 신뢰도 조정용): " + (averageQuality === null ? "계산 불가" : averageQuality.toFixed(0) + "%") +
+        " — 값 존재 여부만 나타내며 최신성·정확성을 보증하지 않습니다." +
         (failures.length
           ? "<br><span style=\"color:#f6ad55\">일부 종목: " +
             escapeHtml(failures.slice(0, 3).join(" / ")) +
