@@ -4901,16 +4901,38 @@
     const sec = secData && typeof secData === "object" ? secData : {};
     const market = marketData && typeof marketData === "object" ? marketData : {};
 
-    // 시장데이터(회사명/PE/PEG/PSR/EV-EBITDA/시가총액)는 Alpha Vantage를 우선.
-    // 회계·재무데이터는 SEC EDGAR를 우선.
-    return {
-      ...market,
-      ...sec,
-      Name: market.Name || sec.Name || "",
-      AssetType: market.AssetType || "Common Stock",
-      __secSource: sec.__source || null,
-      __secUpdatedAt: sec.__updatedAt || null
-    };
+    // SEC는 회계·재무 데이터의 우선 출처, Alpha Vantage는 시장·밸류에이션의 우선 출처.
+    // 중요: SEC JSON에 시장 필드가 null로 들어 있어도 Alpha Vantage 값을 덮어쓰지 않도록
+    // 시장 필드는 유효한 Alpha Vantage 값이 있을 때 명시적으로 우선 적용합니다.
+    const merged = { ...market, ...sec };
+    const marketFields = [
+      "MarketCapitalization", "PERatio", "ForwardPE", "PEGRatio",
+      "PriceToSalesRatioTTM", "EVToEBITDA", "Beta", "Name", "AssetType"
+    ];
+    for (const field of marketFields) {
+      const marketValue = market[field];
+      const isUsable = marketValue !== null && marketValue !== undefined &&
+        String(marketValue).trim() !== "" && String(marketValue).trim().toLowerCase() !== "none";
+      if (isUsable) merged[field] = marketValue;
+      else if (sec[field] === null || sec[field] === undefined || String(sec[field]).trim() === "") {
+        merged[field] = sec[field] ?? null;
+      }
+    }
+    merged.Name = market.Name || sec.Name || "";
+    merged.AssetType = market.AssetType || sec.AssetType || "Common Stock";
+    merged.__secSource = sec.__source || null;
+    merged.__secUpdatedAt = sec.__updatedAt || null;
+    return merged;
+  }
+
+  function hasUsableMarketData(data) {
+    if (!data || typeof data !== "object") return false;
+    const fields = ["MarketCapitalization", "PERatio", "PEGRatio", "PriceToSalesRatioTTM", "EVToEBITDA", "Beta"];
+    return fields.some(field => {
+      const value = data[field];
+      return value !== null && value !== undefined && String(value).trim() !== "" &&
+        String(value).trim().toLowerCase() !== "none" && Number.isFinite(Number(value));
+    });
   }
 
   function hasFreshFundamentalCache(ticker) {
@@ -4951,22 +4973,27 @@
     const cached = fundamentalCache[symbol];
     const sevenDays = 7 * 24 * 60 * 60 * 1000;
 
+    let cachedIsFresh = false;
     if (cached && cached.savedAt && cached.data) {
       const age = Date.now() - new Date(cached.savedAt).getTime();
-      if (Number.isFinite(age) && age >= 0 && age < sevenDays) {
-        // SEC 레코드가 있으면 오래된 캐시를 그대로 쓰지 않고
-        // 최신 SEC 회계데이터 + 기존 시장데이터를 합쳐서 사용합니다.
-        return secData
-          ? mergeFundamentalData(secData, cached.data)
-          : cached.data;
+      cachedIsFresh = Number.isFinite(age) && age >= 0 && age < sevenDays;
+    }
+
+    const apiKey = localStorage.getItem(API_KEY_STORAGE);
+    if (cachedIsFresh) {
+      // 캐시가 신선하고 시장 데이터도 있으면 재사용합니다.
+      // 시장 데이터가 비어 있고 API 키가 있으면 아래에서 Alpha Vantage를 다시 조회합니다.
+      const mergedCached = secData
+        ? mergeFundamentalData(secData, cached.data)
+        : cached.data;
+      if (hasUsableMarketData(mergedCached) || !apiKey) {
+        return mergedCached;
       }
     }
 
-    // SEC 데이터가 있으면 기본적으로 그대로 사용합니다.
-    // 다만 회사명/시장 밸류에이션 필드가 필요하므로 Alpha Vantage를
-    // 사용할 수 있을 때만 보조 조회합니다. API Key가 없으면 SEC만으로 계속 진행합니다.
-    let marketData = {};
-    const apiKey = localStorage.getItem(API_KEY_STORAGE);
+    // SEC 데이터가 있어도 시장 필드가 누락됐다면 Alpha Vantage OVERVIEW를 보조 조회합니다.
+    // 캐시된 값은 유지하고, 새로 받은 시장 데이터를 합쳐 저장합니다.
+    let marketData = cachedIsFresh && cached && cached.data ? cached.data : {};
 
     if (apiKey) {
       try {
@@ -4993,7 +5020,7 @@
         }
 
         if (avData && Object.keys(avData).length > 0) {
-          marketData = avData;
+          marketData = { ...marketData, ...avData };
         }
       } catch (error) {
         // SEC 데이터가 있으면 Alpha 실패는 치명적 오류가 아닙니다.
