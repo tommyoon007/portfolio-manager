@@ -7,1184 +7,384 @@ from pathlib import Path
 
 import requests
 
-
 OUT = Path('sec_financials.json')
 TICKERS_FILE = Path('sec_tickers.json')
 
-# ============================================================
-# SEC CONTACT / USER-AGENT
-# ============================================================
+# SEC Fair Access: the User-Agent must identify the application and provide a real contact email.
+CONTACT_EMAIL = (os.environ.get('SEC_CONTACT_EMAIL') or '').strip()
+ENV_UA = (os.environ.get('SEC_USER_AGENT') or '').strip()
+if CONTACT_EMAIL:
+    UA = f'PortfolioManager/1.1 (contact: {CONTACT_EMAIL})'
+elif '@' in ENV_UA:
+    UA = ENV_UA
+else:
+    UA = ''
 
-contact_email = os.environ.get('SEC_CONTACT_EMAIL', '').strip()
-
-if not contact_email:
+if not UA:
     raise RuntimeError(
-        'SEC_CONTACT_EMAIL 환경변수가 없습니다. '
-        'GitHub Repository Secret에 SEC_CONTACT_EMAIL을 추가하세요.'
+        'SEC_CONTACT_EMAIL is missing. Add a repository Actions secret named '
+        'SEC_CONTACT_EMAIL containing a real contact email, then rerun the workflow.'
     )
-
-# SEC는 자동화 요청에 명확한 User-Agent와 연락처를 요구한다.
-UA = (
-    f'PortfolioManager/1.0 '
-    f'{contact_email}'
-)
 
 HEADERS = {
     'User-Agent': UA,
     'Accept': 'application/json',
     'Accept-Encoding': 'gzip, deflate',
-    'Connection': 'keep-alive',
 }
-
-DATA_HEADERS = dict(HEADERS)
-
 COMMON = 'https://data.sec.gov'
 
-
-# ============================================================
-# BASIC HELPERS
-# ============================================================
 
 def num(v):
     try:
         x = float(v)
-
-        if math.isfinite(x):
-            return x
-
-        return None
-
+        return x if math.isfinite(x) else None
     except Exception:
         return None
 
 
-def get_json(url, headers, timeout=(15, 30)):
-    """
-    SEC JSON 요청.
-
-    - 명확한 User-Agent 사용
-    - Host 헤더는 직접 지정하지 않음
-    - 순차 요청을 전제로 사용
-    - 일시적 네트워크 오류는 짧게 재시도
-    - 403은 SEC 차단 여부를 명확하게 표시
-    """
-
+def get_json(url, timeout=(10, 25)):
+    """Fetch SEC JSON with a clear failure and bounded retries for transient errors."""
     last_error = None
-
-    for attempt in range(2):
-
+    for attempt in range(3):
         try:
+            r = requests.get(url, headers=HEADERS, timeout=timeout)
+            if r.status_code == 200:
+                text = r.text.lstrip('\ufeff').strip()
+                if not text:
+                    raise RuntimeError(f'Empty SEC response: {url}')
+                try:
+                    return json.loads(text)
+                except json.JSONDecodeError as exc:
+                    preview = text[:160].replace('\n', ' ')
+                    raise RuntimeError(
+                        f'SEC returned non-JSON content for {url}; '
+                        f'content-type={r.headers.get("content-type", "")}; preview={preview}'
+                    ) from exc
 
-            r = requests.get(
-                url,
-                headers=headers,
-                timeout=timeout
-            )
-
-        except requests.RequestException as exc:
-
-            last_error = (
-                f'SEC request failed: {exc}'
-            )
-
-            if attempt == 0:
-                time.sleep(3)
-                continue
-
-            raise RuntimeError(
-                f'{last_error}'
-            ) from exc
-
-        content_type = (
-            r.headers.get('content-type')
-            or ''
-        ).lower()
-
-        # ----------------------------------------------------
-        # SUCCESS
-        # ----------------------------------------------------
-
-        if r.status_code == 200:
-
-            text = (
-                r.text
-                .lstrip('\ufeff')
-                .strip()
-            )
-
-            if not text:
-                raise RuntimeError(
-                    f'Empty SEC response: {url}'
-                )
-
-            try:
-                return json.loads(text)
-
-            except json.JSONDecodeError as exc:
-
-                preview = (
-                    text[:300]
-                    .replace('\n', ' ')
-                )
-
-                raise RuntimeError(
-                    'SEC returned non-JSON content '
-                    f'for {url}; '
-                    f'content-type={content_type}; '
-                    f'preview={preview}'
-                ) from exc
-
-        # ----------------------------------------------------
-        # SEC AUTOMATED TOOL BLOCK
-        # ----------------------------------------------------
-
-        if r.status_code == 403:
-
-            body = (
-                r.text[:500]
-                .replace('\n', ' ')
-            )
-
-            raise RuntimeError(
-                'SEC HTTP 403 — automated access blocked. '
-                f'URL={url}; '
-                f'content-type={content_type}; '
-                f'body={body}'
-            )
-
-        # ----------------------------------------------------
-        # RATE LIMIT
-        # ----------------------------------------------------
-
-        if r.status_code in (429, 503):
-
-            body = (
-                r.text[:300]
-                .replace('\n', ' ')
-            )
-
-            last_error = (
+            body = r.text[:180].replace('\n', ' ')
+            last_error = RuntimeError(
                 f'SEC HTTP {r.status_code} for {url}; '
-                f'content-type={content_type}; '
-                f'body={body}'
+                f'content-type={r.headers.get("content-type", "")}; body={body}'
             )
+            # A 403 is usually a policy/contact/network block; retrying immediately won't help.
+            if r.status_code not in (429, 500, 502, 503, 504):
+                raise last_error
+            retry_after = num(r.headers.get('Retry-After'))
+            time.sleep(min(retry_after if retry_after is not None else (2 ** attempt), 8))
+        except requests.RequestException as exc:
+            last_error = RuntimeError(f'SEC request failed: {url} — {exc}')
+            time.sleep(min(2 ** attempt, 8))
+    raise last_error or RuntimeError(f'SEC request failed: {url}')
 
-            if attempt == 0:
-                time.sleep(5)
-                continue
-
-            raise RuntimeError(last_error)
-
-        # ----------------------------------------------------
-        # OTHER HTTP ERROR
-        # ----------------------------------------------------
-
-        body = (
-            r.text[:300]
-            .replace('\n', ' ')
-        )
-
-        raise RuntimeError(
-            f'SEC HTTP {r.status_code} for {url}; '
-            f'content-type={content_type}; '
-            f'body={body}'
-        )
-
-    raise RuntimeError(
-        last_error or
-        f'Unknown SEC request error: {url}'
-    )
-
-
-# ============================================================
-# XBRL FACT HELPERS
-# ============================================================
 
 def duration_facts(arr):
-
     out = []
-
     for x in arr or []:
-
-        if (
-            x.get('start')
-            and x.get('end')
-            and num(x.get('val')) is not None
-        ):
-
+        if x.get('start') and x.get('end') and num(x.get('val')) is not None:
             y = dict(x)
             y['val'] = num(x['val'])
-
             out.append(y)
-
-    return sorted(
-        out,
-        key=lambda x: (
-            x.get('end', ''),
-            x.get('filed', '')
-        )
-    )
+    return sorted(out, key=lambda x: (x.get('end', ''), x.get('filed', '')))
 
 
 def instant_facts(arr):
-
     out = []
-
     for x in arr or []:
-
-        if (
-            not x.get('start')
-            and num(x.get('val')) is not None
-        ):
-
+        if not x.get('start') and num(x.get('val')) is not None:
             y = dict(x)
             y['val'] = num(x['val'])
-
             out.append(y)
-
-    return sorted(
-        out,
-        key=lambda x: (
-            x.get('end', ''),
-            x.get('filed', '')
-        )
-    )
+    return sorted(out, key=lambda x: (x.get('end', ''), x.get('filed', '')))
 
 
 def quarter_values(arr):
-
     q = []
-
     for r in duration_facts(arr):
-
         try:
-
-            start = datetime.fromisoformat(
-                r['start']
-            )
-
-            end = datetime.fromisoformat(
-                r['end']
-            )
-
-            days = (
-                end - start
-            ).days
-
+            start = datetime.fromisoformat(r['start'])
+            end = datetime.fromisoformat(r['end'])
+            days = (end - start).days
         except Exception:
-
             continue
-
         if 70 <= days <= 120:
             q.append(r)
-
+    # Prefer the latest-filed fact for the same quarter end.
     ded = {}
-
     for r in q:
-        ded[r['end']] = r
-
-    return sorted(
-        ded.values(),
-        key=lambda x: x['end']
-    )
+        if r['end'] not in ded or r.get('filed', '') >= ded[r['end']].get('filed', ''):
+            ded[r['end']] = r
+    return sorted(ded.values(), key=lambda x: x['end'])
 
 
 def ttm_from_quarters(arr):
-
     q = quarter_values(arr)
-
     if len(q) >= 4:
-
-        return sum(
-            x['val']
-            for x in q[-4:]
-        )
-
+        return sum(x['val'] for x in q[-4:])
     return None
 
 
+def ttm_or_annual(arr):
+    """Return 4-quarter TTM, or a genuine annual-duration fact; never label one quarter as TTM."""
+    ttm = ttm_from_quarters(arr)
+    if ttm is not None:
+        return ttm
+    annual = []
+    for r in duration_facts(arr):
+        try:
+            days = (datetime.fromisoformat(r['end']) - datetime.fromisoformat(r['start'])).days
+        except Exception:
+            continue
+        if 330 <= days <= 380:
+            annual.append(r)
+    return annual[-1]['val'] if annual else None
+
+
 def latest_q_growth(arr):
-
     q = quarter_values(arr)
-
     if len(q) < 5:
         return None
-
-    a = q[-1]['val']
-    b = q[-5]['val']
-
+    a, b = q[-1]['val'], q[-5]['val']
     if b == 0:
         return None
-
-    return (
-        (a / b - 1)
-        * 100
-    )
+    return (a / b - 1) * 100
 
 
 def fact_latest(arr):
-
     rows = instant_facts(arr)
-
-    return (
-        rows[-1]['val']
-        if rows
-        else None
-    )
+    return rows[-1]['val'] if rows else None
 
 
-def fact_duration_latest(arr):
+def fact_first_latest(facts_all, taxonomies, tags, unit='USD', duration=False):
+    """First usable concept from the preferred tag aliases and taxonomies."""
+    for taxonomy in taxonomies:
+        base = facts_all.get(taxonomy, {})
+        for tag in tags:
+            obj = base.get(tag, {})
+            arr = obj.get('units', {}).get(unit, [])
+            rows = duration_facts(arr) if duration else instant_facts(arr)
+            if rows:
+                return rows[-1]['val'], arr
+    return None, []
 
-    rows = duration_facts(arr)
 
-    return (
-        rows[-1]['val']
-        if rows
-        else None
-    )
-
-
-def arr_for(
-    facts_all,
-    taxonomy,
-    tags,
-    unit
-):
-
-    base = facts_all.get(
-        taxonomy,
-        {}
-    )
-
-    for tag in tags:
-
-        obj = base.get(
-            tag,
-            {}
-        )
-
-        arr = (
-            obj
-            .get('units', {})
-            .get(unit, [])
-        )
-
-        if arr:
-            return arr
-
+def arr_for(facts_all, taxonomy_tags, unit='USD'):
+    for taxonomy, tags in taxonomy_tags:
+        base = facts_all.get(taxonomy, {})
+        for tag in tags:
+            arr = base.get(tag, {}).get('units', {}).get(unit, [])
+            if arr:
+                return arr
     return []
 
 
-# ============================================================
-# BUILD COMPANY DATA
-# ============================================================
-
-def build_company(
-    ticker,
-    cik,
-    payload
-):
-
-    facts_all = payload.get(
-        'facts',
-        {}
-    )
-
-    # --------------------------------------------------------
-    # REVENUE
-    # --------------------------------------------------------
-
-    revenue_arr = arr_for(
-        facts_all,
-        'us-gaap',
-        [
+def build_company(ticker, cik, payload):
+    facts_all = payload.get('facts', {})
+    tax_tags = [
+        ('us-gaap', [
             'RevenueFromContractWithCustomerExcludingAssessedTax',
-            'Revenues',
-            'SalesRevenueNet'
-        ],
-        'USD'
-    )
+            'RevenueFromContractWithCustomerIncludingAssessedTax',
+            'Revenues', 'SalesRevenueNet', 'SalesRevenueGoodsNet',
+        ]),
+        ('ifrs-full', ['Revenue', 'RevenueFromContractsWithCustomers']),
+    ]
+    revenue_arr = arr_for(facts_all, tax_tags)
+    ni_arr = arr_for(facts_all, [
+        ('us-gaap', ['NetIncomeLoss', 'ProfitLoss', 'NetIncomeLossAvailableToCommonStockholdersBasic']),
+        ('ifrs-full', ['ProfitLoss', 'ProfitLossAttributableToOwnersOfParent']),
+    ])
+    ocf_arr = arr_for(facts_all, [
+        ('us-gaap', ['NetCashProvidedByUsedInOperatingActivities']),
+        ('ifrs-full', ['CashFlowsFromUsedInOperatingActivities']),
+    ])
+    capex_arr = arr_for(facts_all, [
+        ('us-gaap', ['PaymentsToAcquirePropertyPlantAndEquipment', 'PaymentsToAcquireProductiveAssets']),
+        ('ifrs-full', ['PurchaseOfPropertyPlantAndEquipment', 'PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities']),
+    ])
+    opinc_arr = arr_for(facts_all, [
+        ('us-gaap', ['OperatingIncomeLoss']),
+        ('ifrs-full', ['OperatingProfitLoss']),
+    ])
+    interest_arr = arr_for(facts_all, [
+        ('us-gaap', ['InterestExpenseNonOperating', 'InterestExpenseNonOperatingAndOperating', 'InterestAndDebtExpense']),
+        ('ifrs-full', ['FinanceCosts', 'InterestExpense']),
+    ])
+    da_arr = arr_for(facts_all, [
+        ('us-gaap', ['DepreciationDepletionAndAmortization', 'DepreciationDepletionAndAmortizationPropertyPlantAndEquipment']),
+        ('ifrs-full', ['DepreciationAndAmortisationExpense', 'DepreciationDepletionAndAmortisationPropertyPlantAndEquipment']),
+    ])
 
-    # --------------------------------------------------------
-    # NET INCOME
-    # --------------------------------------------------------
+    revenue_ttm = ttm_or_annual(revenue_arr)
+    ni_ttm = ttm_or_annual(ni_arr)
+    ocf_ttm = ttm_or_annual(ocf_arr)
+    capex_ttm = ttm_or_annual(capex_arr)
+    fcf = (ocf_ttm - abs(capex_ttm)) if ocf_ttm is not None and capex_ttm is not None else None
+    opinc_ttm = ttm_or_annual(opinc_arr)
+    interest_ttm = ttm_or_annual(interest_arr)
+    da_ttm = ttm_or_annual(da_arr)
+    ebitda = (opinc_ttm + abs(da_ttm)) if opinc_ttm is not None and da_ttm is not None else None
 
-    ni_arr = arr_for(
-        facts_all,
-        'us-gaap',
-        [
-            'NetIncomeLoss',
-            'ProfitLoss',
-            'NetIncomeLossAvailableToCommonStockholdersBasic'
-        ],
-        'USD'
-    )
+    assets, _ = fact_first_latest(facts_all, ['us-gaap'], ['Assets'])
+    liabilities, _ = fact_first_latest(facts_all, ['us-gaap'], ['Liabilities'])
+    equity, _ = fact_first_latest(facts_all, ['us-gaap'], [
+        'StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'
+    ])
+    if equity is None:
+        equity, _ = fact_first_latest(facts_all, ['ifrs-full'], ['Equity', 'EquityAttributableToOwnersOfParent'])
 
-    # --------------------------------------------------------
-    # OPERATING CASH FLOW
-    # --------------------------------------------------------
-
-    ocf_arr = arr_for(
-        facts_all,
-        'us-gaap',
-        [
-            'NetCashProvidedByUsedInOperatingActivities'
-        ],
-        'USD'
-    )
-
-    # --------------------------------------------------------
-    # CAPEX
-    # --------------------------------------------------------
-
-    capex_arr = arr_for(
-        facts_all,
-        'us-gaap',
-        [
-            'PaymentsToAcquirePropertyPlantAndEquipment',
-            'PaymentsToAcquireProductiveAssets'
-        ],
-        'USD'
-    )
-
-    # --------------------------------------------------------
-    # OPERATING INCOME
-    # --------------------------------------------------------
-
-    opinc_arr = arr_for(
-        facts_all,
-        'us-gaap',
-        [
-            'OperatingIncomeLoss'
-        ],
-        'USD'
-    )
-
-    # --------------------------------------------------------
-    # INTEREST EXPENSE
-    # --------------------------------------------------------
-
-    interest_arr = arr_for(
-        facts_all,
-        'us-gaap',
-        [
-            'InterestExpenseNonOperating',
-            'InterestExpenseNonOperatingAndOperating'
-        ],
-        'USD'
-    )
-
-    # --------------------------------------------------------
-    # DEPRECIATION / AMORTIZATION
-    # --------------------------------------------------------
-
-    da_arr = arr_for(
-        facts_all,
-        'us-gaap',
-        [
-            'DepreciationDepletionAndAmortization',
-            'DepreciationDepletionAndAmortizationPropertyPlantAndEquipment'
-        ],
-        'USD'
-    )
-
-    # --------------------------------------------------------
-    # TTM
-    # --------------------------------------------------------
-
-    revenue_ttm = (
-        ttm_from_quarters(
-            revenue_arr
-        )
-        or fact_duration_latest(
-            revenue_arr
-        )
-    )
-
-    ni_ttm = (
-        ttm_from_quarters(
-            ni_arr
-        )
-        or fact_duration_latest(
-            ni_arr
-        )
-    )
-
-    ocf_ttm = (
-        ttm_from_quarters(
-            ocf_arr
-        )
-        or fact_duration_latest(
-            ocf_arr
-        )
-    )
-
-    capex_ttm = (
-        ttm_from_quarters(
-            capex_arr
-        )
-        or fact_duration_latest(
-            capex_arr
-        )
-    )
-
-    # --------------------------------------------------------
-    # FREE CASH FLOW
-    # --------------------------------------------------------
-
-    fcf = (
-        ocf_ttm - abs(capex_ttm)
-        if (
-            ocf_ttm is not None
-            and capex_ttm is not None
-        )
-        else None
-    )
-
-    # --------------------------------------------------------
-    # OPERATING INCOME
-    # --------------------------------------------------------
-
-    opinc_ttm = (
-        ttm_from_quarters(
-            opinc_arr
-        )
-        or fact_duration_latest(
-            opinc_arr
-        )
-    )
-
-    # --------------------------------------------------------
-    # INTEREST
-    # --------------------------------------------------------
-
-    interest_ttm = (
-        ttm_from_quarters(
-            interest_arr
-        )
-        or fact_duration_latest(
-            interest_arr
-        )
-    )
-
-    # --------------------------------------------------------
-    # D&A
-    # --------------------------------------------------------
-
-    da_ttm = (
-        ttm_from_quarters(
-            da_arr
-        )
-        or fact_duration_latest(
-            da_arr
-        )
-    )
-
-    # --------------------------------------------------------
-    # EBITDA
-    # --------------------------------------------------------
-
-    ebitda = (
-        opinc_ttm + abs(da_ttm)
-        if (
-            opinc_ttm is not None
-            and da_ttm is not None
-        )
-        else None
-    )
-
-    # --------------------------------------------------------
-    # BALANCE SHEET
-    # --------------------------------------------------------
-
-    us = facts_all.get(
-        'us-gaap',
-        {}
-    )
-
-    assets = fact_latest(
-        us.get('Assets', {})
-        .get('units', {})
-        .get('USD', [])
-    )
-
-    liabilities = fact_latest(
-        us.get('Liabilities', {})
-        .get('units', {})
-        .get('USD', [])
-    )
-
-    # --------------------------------------------------------
-    # EQUITY
-    # --------------------------------------------------------
-
-    equity = None
-
-    for tag in [
-        'StockholdersEquity',
-        'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'
-    ]:
-
-        equity = fact_latest(
-            us.get(tag, {})
-            .get('units', {})
-            .get('USD', [])
-        )
-
-        if equity is not None:
-            break
-
-    # --------------------------------------------------------
-    # CASH
-    # --------------------------------------------------------
-
-    cash = None
-
-    for tag in [
+    cash, _ = fact_first_latest(facts_all, ['us-gaap'], [
         'CashAndCashEquivalentsAtCarryingValue',
-        'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents'
-    ]:
+        'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents',
+    ])
+    if cash is None:
+        cash, _ = fact_first_latest(facts_all, ['ifrs-full'], ['CashAndCashEquivalents'])
 
-        cash = fact_latest(
-            us.get(tag, {})
-            .get('units', {})
-            .get('USD', [])
-        )
+    ca, _ = fact_first_latest(facts_all, ['us-gaap'], ['AssetsCurrent'])
+    cl, _ = fact_first_latest(facts_all, ['us-gaap'], ['LiabilitiesCurrent'])
+    if ca is None:
+        ca, _ = fact_first_latest(facts_all, ['ifrs-full'], ['CurrentAssets'])
+    if cl is None:
+        cl, _ = fact_first_latest(facts_all, ['ifrs-full'], ['CurrentLiabilities'])
 
-        if cash is not None:
-            break
+    # Select one alias per debt bucket to avoid double-counting synonymous tags.
+    debt_current, _ = fact_first_latest(facts_all, ['us-gaap'], [
+        'LongTermDebtAndFinanceLeaseObligationsCurrent', 'LongTermDebtCurrent', 'ShortTermBorrowings', 'CommercialPaper'
+    ])
+    debt_noncurrent, _ = fact_first_latest(facts_all, ['us-gaap'], [
+        'LongTermDebtAndFinanceLeaseObligationsNoncurrent', 'LongTermDebtNoncurrent', 'LongTermDebt'
+    ])
+    if debt_current is None:
+        debt_current, _ = fact_first_latest(facts_all, ['ifrs-full'], ['BorrowingsCurrent', 'LeaseLiabilitiesCurrent'])
+    if debt_noncurrent is None:
+        debt_noncurrent, _ = fact_first_latest(facts_all, ['ifrs-full'], ['BorrowingsNoncurrent', 'LeaseLiabilitiesNoncurrent'])
+    debt = (debt_current or 0) + (debt_noncurrent or 0) if debt_current is not None or debt_noncurrent is not None else None
 
-    # --------------------------------------------------------
-    # CURRENT ASSETS / LIABILITIES
-    # --------------------------------------------------------
-
-    ca = fact_latest(
-        us.get('AssetsCurrent', {})
-        .get('units', {})
-        .get('USD', [])
-    )
-
-    cl = fact_latest(
-        us.get('LiabilitiesCurrent', {})
-        .get('units', {})
-        .get('USD', [])
-    )
-
-    # --------------------------------------------------------
-    # DEBT
-    # --------------------------------------------------------
-
-    debt = 0
-
-    for tag in [
-        'LongTermDebtAndFinanceLeaseObligationsCurrent',
-        'LongTermDebtCurrent',
-        'LongTermDebtNoncurrent',
-        'LongTermDebtAndFinanceLeaseObligationsNoncurrent'
-    ]:
-
-        v = fact_latest(
-            us.get(tag, {})
-            .get('units', {})
-            .get('USD', [])
-        )
-
-        if v is not None:
-            debt += max(0, v)
-
-    # --------------------------------------------------------
-    # SHARES
-    # --------------------------------------------------------
-
-    dei = facts_all.get(
-        'dei',
-        {}
-    )
-
-    shobj = (
-        dei
-        .get(
-            'EntityCommonStockSharesOutstanding',
-            {}
-        )
-        .get('units', {})
-        .get('shares', [])
-    )
-
-    shares_rows = instant_facts(
-        shobj
-    )
-
-    shares = (
-        shares_rows[-1]['val']
-        if shares_rows
-        else None
-    )
-
-    # --------------------------------------------------------
-    # RETURN
-    # --------------------------------------------------------
+    shares, _ = fact_first_latest(facts_all, ['dei'], ['EntityCommonStockSharesOutstanding'], unit='shares')
+    # Do not copy basic shares into diluted shares; those are not the same metric.
+    diluted_shares = None
 
     return {
-
-        'RevenueTTM':
-            revenue_ttm,
-
-        'QuarterlyRevenueGrowthYOY':
-            latest_q_growth(
-                revenue_arr
-            ),
-
-        'QuarterlyEarningsGrowthYOY':
-            latest_q_growth(
-                ni_arr
-            ),
-
-        'OperatingIncomeTTM':
-            opinc_ttm,
-
-        'NetIncomeTTM':
-            ni_ttm,
-
-        'OperatingMarginTTM':
-            (
-                opinc_ttm
-                / revenue_ttm
-                * 100
-                if (
-                    opinc_ttm is not None
-                    and revenue_ttm
-                )
-                else None
-            ),
-
-        'ReturnOnEquityTTM':
-            (
-                ni_ttm
-                / equity
-                * 100
-                if (
-                    ni_ttm is not None
-                    and equity not in (
-                        None,
-                        0
-                    )
-                )
-                else None
-            ),
-
-        'DebtToEquity':
-            (
-                debt
-                / equity
-                * 100
-                if equity not in (
-                    None,
-                    0
-                )
-                else None
-            ),
-
-        'CurrentRatio':
-            (
-                ca / cl
-                if (
-                    ca is not None
-                    and cl not in (
-                        None,
-                        0
-                    )
-                )
-                else None
-            ),
-
-        'OperatingCashflow':
-            ocf_ttm,
-
-        'FreeCashFlowTTM':
-            fcf,
-
-        'EBITDA':
-            ebitda,
-
-        'InterestExpenseTTM':
-            (
-                abs(interest_ttm)
-                if interest_ttm is not None
-                else None
-            ),
-
-        'SharesOutstanding':
-            shares,
-
-        'DilutedSharesOutstanding':
-            shares,
-
-        'Beta':
-            None,
-
-        'ForwardPE':
-            None,
-
-        'PERatio':
-            None,
-
-        'PEGRatio':
-            None,
-
-        'PriceToSalesRatioTTM':
-            None,
-
-        'EVToEBITDA':
-            None,
-
-        'MarketCapitalization':
-            None,
-
-        'TotalDebt':
-            debt,
-
-        'Cash':
-            cash,
-
-        '__source':
-            'SEC EDGAR XBRL companyfacts',
-
-        '__cik':
-            cik,
-
-        '__updatedAt':
-            datetime.now(
-                timezone.utc
-            ).isoformat(),
+        'RevenueTTM': revenue_ttm,
+        'QuarterlyRevenueGrowthYOY': latest_q_growth(revenue_arr),
+        'QuarterlyEarningsGrowthYOY': latest_q_growth(ni_arr),
+        'OperatingIncomeTTM': opinc_ttm,
+        'NetIncomeTTM': ni_ttm,
+        'OperatingMarginTTM': (opinc_ttm / revenue_ttm * 100) if opinc_ttm is not None and revenue_ttm not in (None, 0) else None,
+        'ReturnOnEquityTTM': (ni_ttm / equity * 100) if ni_ttm is not None and equity not in (None, 0) else None,
+        'DebtToEquity': (debt / equity * 100) if debt is not None and equity not in (None, 0) else None,
+        'CurrentRatio': (ca / cl) if ca is not None and cl not in (None, 0) else None,
+        'OperatingCashflow': ocf_ttm,
+        'FreeCashFlowTTM': fcf,
+        'EBITDA': ebitda,
+        'InterestExpenseTTM': abs(interest_ttm) if interest_ttm is not None else None,
+        'SharesOutstanding': shares,
+        'DilutedSharesOutstanding': diluted_shares,
+        'Beta': None,
+        'ForwardPE': None,
+        'PERatio': None,
+        'PEGRatio': None,
+        'PriceToSalesRatioTTM': None,
+        'EVToEBITDA': None,
+        'MarketCapitalization': None,
+        'TotalDebt': debt,
+        'Cash': cash,
+        '__source': 'SEC EDGAR XBRL Companyfacts',
+        '__cik': cik,
+        '__updatedAt': datetime.now(timezone.utc).isoformat(),
     }
 
-
-# ============================================================
-# MAIN
-# ============================================================
 
 def main():
+    tickers = json.loads(TICKERS_FILE.read_text(encoding='utf-8'))
+    if not isinstance(tickers, list):
+        raise RuntimeError('sec_tickers.json must contain a JSON array of ticker symbols.')
 
-    # --------------------------------------------------------
-    # TICKERS
-    # --------------------------------------------------------
-
-    tickers = json.loads(
-        TICKERS_FILE.read_text(
-            encoding='utf-8'
-        )
-    )
-
-    if not isinstance(
-        tickers,
-        list
-    ):
-
-        raise RuntimeError(
-            'sec_tickers.json must contain '
-            'a JSON array of ticker symbols.'
-        )
-
-    # --------------------------------------------------------
-    # CIK MAPPING
-    # --------------------------------------------------------
-
-    mapping_file = Path(
-        'sec_ticker_to_cik.json'
-    )
-
+    mapping_file = Path('sec_ticker_to_cik.json')
     if not mapping_file.exists():
-
-        raise RuntimeError(
-            'sec_ticker_to_cik.json '
-            'was not downloaded.'
-        )
-
-    raw_mapping = json.loads(
-        mapping_file.read_text(
-            encoding='utf-8'
-        )
-    )
-
-    if not isinstance(
-        raw_mapping,
-        dict
-    ):
-
-        raise RuntimeError(
-            'sec_ticker_to_cik.json '
-            'must contain an object.'
-        )
-
+        raise RuntimeError('sec_ticker_to_cik.json was not downloaded.')
+    raw_mapping = json.loads(mapping_file.read_text(encoding='utf-8'))
+    if not isinstance(raw_mapping, dict):
+        raise RuntimeError('sec_ticker_to_cik.json must contain an object.')
     by_ticker = {
-
-        str(k).upper().strip():
-            str(v).zfill(10)
-
-        for k, v in raw_mapping.items()
-
-        if k and v
+        str(k).upper().strip(): str(v).zfill(10)
+        for k, v in raw_mapping.items() if k and v
     }
-
-    # --------------------------------------------------------
-    # KEEP PREVIOUS GOOD DATA
-    # --------------------------------------------------------
 
     result = {}
     previous_failures = {}
-
     if OUT.exists():
-
         try:
-
-            previous = json.loads(
-                OUT.read_text(
-                    encoding='utf-8'
-                )
-            )
-
-            if isinstance(
-                previous,
-                dict
-            ):
-
-                if isinstance(
-                    previous.get('data'),
-                    dict
-                ):
-
-                    result.update(
-                        previous['data']
-                    )
-
-                if isinstance(
-                    previous.get('errors'),
-                    dict
-                ):
-
-                    previous_failures.update(
-                        previous['errors']
-                    )
-
+            previous = json.loads(OUT.read_text(encoding='utf-8'))
+            if isinstance(previous, dict):
+                if isinstance(previous.get('data'), dict):
+                    result.update(previous['data'])
+                if isinstance(previous.get('errors'), dict):
+                    previous_failures.update(previous['errors'])
         except Exception as exc:
-
-            print(
-                f'WARNING: existing {OUT} '
-                f'could not be read: {exc}'
-            )
-
-    # --------------------------------------------------------
-    # BUILD REQUEST LIST
-    # --------------------------------------------------------
+            print(f'WARNING: existing {OUT} could not be read: {exc}')
 
     requested = []
-
-    existing_tickers = set()
-
+    seen = set()
     for raw in tickers:
-
-        ticker = (
-            str(raw)
-            .upper()
-            .strip()
-        )
-
-        if (
-            not ticker
-            or ticker in existing_tickers
-        ):
+        ticker = str(raw).upper().strip()
+        if not ticker or ticker in seen:
             continue
-
-        cik = by_ticker.get(
-            ticker
-        )
-
+        seen.add(ticker)
+        cik = by_ticker.get(ticker)
         if not cik:
-
-            print(
-                f'SKIP {ticker}: '
-                'no stock CIK mapping '
-                '(ETF/fund/unsupported)'
-            )
-
+            print(f'SKIP {ticker}: no stock CIK mapping (ETF/fund/unsupported)')
             continue
+        requested.append({'ticker': ticker, 'cik': cik})
 
-        requested.append({
-            'ticker': ticker,
-            'cik': cik
-        })
-
-        existing_tickers.add(
-            ticker
-        )
-
-    # --------------------------------------------------------
-    # FETCH ONE COMPANY
-    # --------------------------------------------------------
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     def fetch_one(item):
-
-        ticker = item['ticker']
-        cik = item['cik']
-
-        url = (
-            f'{COMMON}/api/xbrl/'
-            f'companyfacts/CIK{cik}.json'
-        )
-
-        print(
-            f'FETCH {ticker} '
-            f'CIK={cik}'
-        )
-
+        ticker, cik = item['ticker'], item['cik']
+        url = f'{COMMON}/api/xbrl/companyfacts/CIK{cik}.json'
         try:
-
-            facts = get_json(
-                url,
-                DATA_HEADERS
-            )
-
-            record = build_company(
-                ticker,
-                cik,
-                facts
-            )
-
-            clean = {
-
-                k: v
-
-                for k, v in record.items()
-
-                if (
-                    v is not None
-                    or k.startswith('__')
-                )
-            }
-
-            return (
-                ticker,
-                clean,
-                None
-            )
-
+            facts = get_json(url)
+            record = build_company(ticker, cik, facts)
+            clean = {k: v for k, v in record.items() if v is not None or k.startswith('__')}
+            return ticker, clean, None
         except Exception as exc:
+            return ticker, None, str(exc)
 
-            return (
-                ticker,
-                None,
-                str(exc)
-            )
+    fresh_successes = 0
+    # Four requests in parallel remains below SEC's 10 requests/second limit.
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [pool.submit(fetch_one, item) for item in requested]
+        for future in as_completed(futures):
+            ticker, record, error = future.result()
+            if record is not None:
+                result[ticker] = record
+                previous_failures.pop(ticker, None)
+                fresh_successes += 1
+                print(f'OK {ticker}')
+            else:
+                previous_failures[ticker] = error
+                print(f'FAIL {ticker}: {error}')
 
-    # --------------------------------------------------------
-    # IMPORTANT:
-    # SEC REQUESTS ARE NOW SEQUENTIAL.
-    #
-    # We deliberately do NOT use ThreadPoolExecutor.
-    # This reduces simultaneous automated requests.
-    # --------------------------------------------------------
-
-    successful_this_run = 0
-
-    for item in requested:
-
-        ticker, record, error = (
-            fetch_one(item)
+    # Never publish an empty file as if the scheduled refresh had succeeded.
+    if fresh_successes == 0 and not result:
+        raise RuntimeError(
+            'SEC returned zero usable company records. Existing data was not overwritten. '
+            'Check the SEC_CONTACT_EMAIL secret and the HTTP errors above.'
         )
-
-        if record is not None:
-
-            result[ticker] = record
-
-            previous_failures.pop(
-                ticker,
-                None
-            )
-
-            successful_this_run += 1
-
-            print(
-                f'OK {ticker}'
-            )
-
-        else:
-
-            previous_failures[ticker] = (
-                error
-            )
-
-            print(
-                f'FAIL {ticker}: {error}'
-            )
-
-        # ----------------------------------------------------
-        # Stay comfortably below SEC rate limits.
-        # One request every ~0.6 sec.
-        # ----------------------------------------------------
-
-        time.sleep(0.6)
-
-    # --------------------------------------------------------
-    # OUTPUT
-    # --------------------------------------------------------
 
     payload = {
-
-        'updated_at':
-            datetime.now(
-                timezone.utc
-            ).isoformat(),
-
-        'source':
-            'SEC EDGAR XBRL Companyfacts',
-
-        'data':
-            result,
-
-        'errors':
-            previous_failures,
-
+        'updated_at': datetime.now(timezone.utc).isoformat(),
+        'source': 'SEC EDGAR XBRL Companyfacts',
+        'data': result,
+        'errors': previous_failures,
         'stats': {
-
-            'requested_stock_tickers':
-                len(requested),
-
-            'successful_records':
-                len(result),
-
-            'successful_this_run':
-                successful_this_run,
-
-            'failed_tickers':
-                len(previous_failures),
+            'requested_stock_tickers': len(requested),
+            'fresh_successful_records': fresh_successes,
+            'total_cached_records': len(result),
+            'failed_tickers': len(previous_failures),
         },
     }
+    OUT.write_text(json.dumps(payload, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
+    print(f"Wrote {OUT}: {fresh_successes} fresh records, {len(result)} total records, {len(previous_failures)} failed tickers.")
 
-    OUT.write_text(
-
-        json.dumps(
-            payload,
-            ensure_ascii=False,
-            separators=(
-                ',',
-                ':'
-            )
-        ),
-
-        encoding='utf-8'
-    )
-
-    print(
-        f'Wrote {OUT}: '
-        f'{successful_this_run} new/updated records, '
-        f'{len(previous_failures)} failed/skipped records.'
-    )
-
-
-# ============================================================
-# ENTRY POINT
-# ============================================================
 
 if __name__ == '__main__':
     main()
