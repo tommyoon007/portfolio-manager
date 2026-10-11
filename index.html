@@ -1649,7 +1649,7 @@
 
       <div style="margin-top:10px;">
 
-      <strong>추천 비중 엔진 v8</strong><br>
+      <strong>추천 비중 엔진 v9</strong><br>
 
       v7은 기존 펀더멘털 점수에 <strong>현재 보유종목 간 상대평가</strong>를 추가합니다.
       먼저 절대 펀더멘털 점수를 계산한 뒤, 현재 보유한 개별주식끼리
@@ -1675,8 +1675,7 @@
       <strong>v7 핵심</strong>:
       같은 포트폴리오 안에서 무엇이 상대적으로 더 좋은지를 반영하므로,
       절대점수가 비슷한 종목도 추천점수와 추천비중이 달라질 수 있습니다.
-      데이터가 부족한 지표는 사용 가능한 지표만으로 상대점수를 계산하고,
-      데이터 부족 정도는 별도의 신뢰도에 반영합니다.
+      데이터가 부족한 지표는 사용 가능한 지표만으로 상대점수를 계산합니다. v9부터 종목별 데이터 확보율과 전체 평균 확보율을 표시합니다. 확보율은 데이터 최신성이나 정확성을 보증하지 않습니다.
 
       <br>
 
@@ -3776,6 +3775,25 @@
             ? Number(item.recommendationScore)
             : null;
 
+        const quality = item.recommendationDetails && item.recommendationDetails.dataQuality
+          ? item.recommendationDetails.dataQuality
+          : null;
+        const qualityPercent = quality && quality.percent !== null && quality.percent !== undefined && Number.isFinite(Number(quality.percent))
+          ? Number(quality.percent)
+          : null;
+        const qualityLabel = qualityPercent === null
+          ? "데이터 확인 전"
+          : qualityPercent < 50
+            ? `데이터 부족 ${qualityPercent.toFixed(0)}%`
+            : `데이터 확보 ${qualityPercent.toFixed(0)}%`;
+        const qualityColor = qualityPercent === null
+          ? "#8d98a7"
+          : qualityPercent < 50
+            ? "#ff7979"
+            : qualityPercent < 75
+              ? "#f6ad55"
+              : "#79d7a5";
+
         const scoreClass =
           score !== null && score >= 70
             ? "positive"
@@ -3813,6 +3831,7 @@
               <div class="holding-card-score ${scoreClass}">
                 <span class="holding-card-score-label">추천점수</span>
                 ${score !== null ? score.toFixed(1) : "-"}
+                <div style="font-size:10px;font-weight:600;margin-top:4px;color:${qualityColor};">${escapeHtml(qualityLabel)}</div>
               </div>
             </div>
 
@@ -4135,6 +4154,24 @@
           const score =
             item.recommendationScore;
 
+          const quality = item.recommendationDetails && item.recommendationDetails.dataQuality
+            ? item.recommendationDetails.dataQuality
+            : null;
+          const qualityPercent = quality && quality.percent !== null && quality.percent !== undefined && Number.isFinite(Number(quality.percent))
+            ? Number(quality.percent)
+            : null;
+          const qualityLabel = qualityPercent === null
+            ? "데이터 확인 전"
+            : qualityPercent < 50
+              ? `데이터 부족 ${qualityPercent.toFixed(0)}%`
+              : `데이터 확보 ${qualityPercent.toFixed(0)}%`;
+          const qualityColor = qualityPercent === null
+            ? "#8d98a7"
+            : qualityPercent < 50
+              ? "#ff7979"
+              : qualityPercent < 75
+                ? "#f6ad55"
+                : "#79d7a5";
 
           let scoreClass =
             "neutral";
@@ -4279,6 +4316,9 @@
 
                       <div class="recommend-score ${scoreClass}">
                         ${score.toFixed(1)}
+                      </div>
+                      <div style="font-size:11px;font-weight:600;margin:4px 0;color:${qualityColor};">
+                        ${escapeHtml(qualityLabel)}
                       </div>
 
                       <div class="recommend-reason">
@@ -5674,7 +5714,7 @@
   }
 
   /* =========================================================
-     추천 점수 엔진 v8 — SEC + 캐시 병합 및 보유종목 상대평가
+     추천 점수 엔진 v9 — SEC + 캐시 병합 및 보유종목 상대평가
 
      v7 구조
      1) 기존 절대 펀더멘털 점수 = 70%
@@ -6789,6 +6829,17 @@
         "status";
 
 
+      const qualityItems = scoredItems.filter(result =>
+        result.details && result.details.dataQuality &&
+        result.details.dataQuality.percent !== null && result.details.dataQuality.percent !== undefined &&
+        Number.isFinite(Number(result.details.dataQuality.percent))
+      );
+      const averageQuality = qualityItems.length
+        ? qualityItems.reduce((sum, result) => sum + Number(result.details.dataQuality.percent), 0) / qualityItems.length
+        : null;
+      const lowQualityCount = qualityItems.filter(result => Number(result.details.dataQuality.percent) < 50).length;
+      const mediumQualityCount = qualityItems.filter(result => Number(result.details.dataQuality.percent) >= 50 && Number(result.details.dataQuality.percent) < 75).length;
+
       status.innerHTML =
         "추천 계산 완료 — " +
         "성공 " +
@@ -6800,7 +6851,11 @@
         apiCalls +
         "회" +
         "<br>" +
-        "v8 자동 분석 완료: 최신 SEC 재무데이터를 우선 사용하고, 현재 보유종목 상대평가로 최종점수를 보정했습니다. 기존 재무 캐시는 SEC 데이터와 병합합니다." +
+        "재무 데이터 평균 확보율: " +
+        (averageQuality === null ? "계산 불가" : averageQuality.toFixed(0) + "%") +
+        " / 데이터 부족(<50%): " + lowQualityCount + "개 / 부분 확보(50~74%): " + mediumQualityCount + "개" +
+        "<br>" +
+        "v9 데이터 신뢰도 표시 완료: 확보율은 값이 존재하는 지표의 비율이며, 최신성이나 정확성을 보증하지 않습니다." +
         (failures.length
           ? "<br><span style=\"color:#f6ad55\">일부 종목: " +
             escapeHtml(failures.slice(0, 3).join(" / ")) +
