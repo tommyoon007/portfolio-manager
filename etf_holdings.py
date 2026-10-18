@@ -36,7 +36,12 @@ def fetch_html_tables(ticker, url):
     tables = pd.read_html(io.StringIO(html))
     candidates = []
     for table in tables:
-        cols = [str(c).strip().lower() for c in table.columns]
+        # Provider tables may use multi-row headers; flatten every header level.
+        def flatten(col):
+            parts = col if isinstance(col, tuple) else (col,)
+            return ' '.join(str(p).strip() for p in parts
+                            if str(p).strip() and not str(p).lower().startswith('unnamed')).lower()
+        cols = [flatten(c) for c in table.columns]
         ticker_idx = next((i for i,c in enumerate(cols) if 'ticker' in c or 'symbol' in c), None)
         weight_idx = next((i for i,c in enumerate(cols) if 'weight' in c or 'net assets' in c or 'portfolio weight' in c), None)
         if ticker_idx is None or weight_idx is None: continue
