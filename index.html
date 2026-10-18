@@ -2687,6 +2687,11 @@
       yieldDate: "2026-10-13",
       pe: "공식 페이지에서 최신값 미확인",
       pb: "공식 페이지에서 최신값 미확인",
+      holdingsDate: "2026-10-13",
+      topHolding: "NVDA 20.04%",
+      top1Weight: 20.04,
+      top5Weight: 45.38,
+      topHoldings: "NVDA 20.04% · TSM 9.33% · AMD 5.70% · AVGO 5.47% · TXN 4.84%",
       source: "https://www.vaneck.com/us/en/investments/semiconductor-etf-smh/"
     },
     SOXX: {
@@ -2699,6 +2704,11 @@
       pe: "51.34",
       pb: "11.50",
       valuationDate: "2026-10-07",
+      holdingsDate: "2026-09-09",
+      topHolding: "NVDA 9.18%",
+      top1Weight: 9.18,
+      top5Weight: 39.81,
+      topHoldings: "NVDA 9.18% · MU 9.17% · AMD 8.75% · AVGO 7.07% · INTC 5.64%",
       source: "https://www.ishares.com/us/products/239705/ishares-phlx-semiconductor-etf"
     },
     MORT: {
@@ -2710,6 +2720,8 @@
       yieldDate: "2026-09-10",
       distributionYield: "18.11%",
       trailingYield: "15.81%",
+      holdingsDate: "2026-09-10",
+      riskNote: "모기지 REIT의 레버리지·금리 및 MBS 스프레드 민감도, 변동 가능한 분배금",
       pe: "해당 ETF 특성상 일반 주식형 ETF와 직접 비교 부적합",
       pb: "해당 ETF 특성상 일반 주식형 ETF와 직접 비교 부적합",
       source: "https://www.vaneck.com/us/en/investments/mortgage-reit-income-mort/overview/"
@@ -2738,10 +2750,15 @@
         ${card("PBR", f.pb)}
         ${f.distributionYield ? card("분배금 수익률", f.distributionYield) : ""}
         ${f.trailingYield ? card("최근 12개월 수익률", f.trailingYield) : ""}
+        ${f.topHolding ? card("최대 편입종목", f.topHolding) : ""}
+        ${f.top5Weight !== undefined ? card("상위 5개 종목 비중", Number(f.top5Weight).toFixed(2) + "%") : ""}
+        ${f.riskNote ? card("핵심 위험", f.riskNote) : ""}
       </div>
+      ${f.topHoldings ? `<div class="detail-quality"><strong>상위 편입종목 (${f.holdingsDate})</strong><br>${f.topHoldings}</div>` : ""}
+      ${f.riskNote ? `<div class="detail-quality"><strong>MORT 해석 주의</strong><br>높은 SEC 수익률·분배금 수익률은 분배금 지속성이나 원금 안정성을 보장하지 않습니다. 금리와 MBS 스프레드 변화, 레버리지 비용에 따라 가격과 분배금이 함께 변할 수 있습니다.</div>` : ""}
       <div class="detail-quality">
         <strong>데이터 기준 및 출처</strong><br>
-        ${symbol === "SMH" ? "운용자산 기준일: 2026-10-13 · SEC 수익률 기준일: 2026-10-13" : symbol === "SOXX" ? "운용자산/PER/PBR 기준일: 2026-10-07 · SEC 수익률 기준일: 2026-08-31" : "운용자산/수익률 기준일: 2026-09-10"}<br>
+        ${symbol === "SMH" ? "운용자산/상위 편입비중 기준일: 2026-10-13 · SEC 수익률 기준일: 2026-10-13" : symbol === "SOXX" ? "운용자산/PER/PBR 기준일: 2026-10-07 · 상위 편입비중 기준일: 2026-09-09 · SEC 수익률 기준일: 2026-08-31" : "운용자산/수익률 기준일: 2026-09-10"}<br>
         PER·PBR은 제공된 공식 자료에서 최신 수치가 확인되지 않으면 추정하지 않습니다. ETF의 SEC 수익률과 분배금 수익률은 미래 배당을 보장하지 않습니다.<br>
         <a href="${f.source}" target="_blank" rel="noopener noreferrer" style="color:#8db8ff">발행사 공식 자료 열기</a>
       </div>`;
@@ -5898,6 +5915,17 @@ function recommendationDetailsHtml(
         score -= 2;
         components.push("PBR 미확인 -2.0");
       }
+      // 상위 종목 집중도 위험: 펀드 상위 보유비중 스냅샷을 반영
+      if (Number.isFinite(Number(p.top1Weight))) {
+        const top1Penalty = Math.max(0, Math.min(4, (Number(p.top1Weight) - 10) * 0.30));
+        score -= top1Penalty;
+        components.push("최대종목 집중도 -" + top1Penalty.toFixed(1));
+      }
+      if (Number.isFinite(Number(p.top5Weight))) {
+        const top5Penalty = Math.max(0, Math.min(3, (Number(p.top5Weight) - 30) * 0.12));
+        score -= top5Penalty;
+        components.push("상위5종목 집중도 -" + top5Penalty.toFixed(1));
+      }
       // SEC 수익률은 성장주 ETF의 투자매력 점수로 과대 반영하지 않습니다.
       if (secYield === null) components.push("SEC 수익률 미확인");
     } else if (symbol === "MORT") {
@@ -5913,9 +5941,9 @@ function recommendationDetailsHtml(
     return {
       score,
       components,
-      dataDate: p.valuationDate || p.assetsDate || p.yieldDate || "기준일 미확인",
-      confidence: (symbol === "SOXX" && pe !== null && pb !== null) ? "중간" : "낮음",
-      note: "발행사 공개 지표 기반 참고점수이며 실시간 점수/수익률 예측이 아닙니다."
+      dataDate: [p.valuationDate, p.holdingsDate, p.assetsDate, p.yieldDate].filter(Boolean).join(" / ") || "기준일 미확인",
+      confidence: (symbol === "SOXX" && pe !== null && pb !== null && p.top5Weight !== undefined) ? "중간" : "낮음",
+      note: "발행사 공개 지표와 상위 편입비중 스냅샷 기반 참고점수입니다. 편입종목별 최신 실적을 가중평균한 점수는 아니며 실시간 자동 갱신도 아닙니다."
     };
   }
 
