@@ -298,16 +298,28 @@ def main():
     if not isinstance(tickers, list):
         raise RuntimeError('sec_tickers.json must contain a JSON array of ticker symbols.')
 
+    # Build ticker -> CIK mapping automatically from the SEC's official file.
+    # This removes the need to manually create sec_ticker_to_cik.json.
     mapping_file = Path('sec_ticker_to_cik.json')
-    if not mapping_file.exists():
-        raise RuntimeError('sec_ticker_to_cik.json was not downloaded.')
-    raw_mapping = json.loads(mapping_file.read_text(encoding='utf-8'))
-    if not isinstance(raw_mapping, dict):
-        raise RuntimeError('sec_ticker_to_cik.json must contain an object.')
-    by_ticker = {
-        str(k).upper().strip(): str(v).zfill(10)
-        for k, v in raw_mapping.items() if k and v
-    }
+    ticker_map_url = 'https://www.sec.gov/files/company_tickers.json'
+    raw_tickers = get_json(ticker_map_url)
+    by_ticker = {}
+    for row in raw_tickers.values():
+        ticker = str(row.get('ticker', '')).upper().strip()
+        cik = row.get('cik_str')
+        if ticker and cik:
+            by_ticker[ticker] = str(cik).zfill(10)
+
+    # Recent/new listings may not yet appear in the SEC ticker file.
+    # Verify these CIKs again if the SEC assigns a new registrant in future.
+    by_ticker.update({
+        'GFUZ': '0002074850',
+        'XRPN': '0002092592',
+    })
+    mapping_file.write_text(
+        json.dumps(by_ticker, ensure_ascii=False, indent=2), encoding='utf-8'
+    )
+    print(f'Created {mapping_file} with {len(by_ticker)} ticker mappings.')
 
     result = {}
     previous_failures = {}
