@@ -28,31 +28,72 @@ def parse_weight(v):
     except Exception: return None
 
 def fetch_html_tables(ticker, url):
+    """Parse provider tables directly from HTML; tolerate multi-row and nested headers."""
+    from bs4 import BeautifulSoup
     r = requests.get(url, headers=HEADERS, timeout=35)
     r.raise_for_status()
-    html = r.text
-    # pandas can parse provider tables without hard-coding changing row positions.
-    import pandas as pd
-    tables = pd.read_html(io.StringIO(html))
+    soup = BeautifulSoup(r.text, 'html.parser')
     candidates = []
-    for table in tables:
-        # Provider tables may use multi-row headers; flatten every header level.
-        def flatten(col):
-            parts = col if isinstance(col, tuple) else (col,)
-            return ' '.join(str(p).strip() for p in parts
-                            if str(p).strip() and not str(p).lower().startswith('unnamed')).lower()
-        cols = [flatten(c) for c in table.columns]
-        ticker_idx = next((i for i,c in enumerate(cols) if 'ticker' in c or 'symbol' in c), None)
-        weight_idx = next((i for i,c in enumerate(cols) if 'weight' in c or 'net assets' in c or 'portfolio weight' in c), None)
-        if ticker_idx is None or weight_idx is None: continue
+
+    # First parse actual HTML tables. This avoids pandas' changing header inference.
+    for table in soup.find_all('table'):
+        trs = table.find_all('tr')
+        if not trs: continue
+        grid = []
+        for tr in trs:
+            cells = tr.find_all(['th', 'td'])
+            vals = [' '.join(c.stripped_strings).strip() for c in cells]
+            if vals: grid.append(vals)
+        if not grid: continue
+        header_idx = None
+        ti = wi = None
+        for ri, vals in enumerate(grid[:8]):
+            joined = ' | '.join(vals).lower()
+            if ('ticker' in joined or 'symbol' in joined) and ('weight' in joined or 'net assets' in joined or 'portfolio weight' in joined):
+                header_idx = ri
+                ti = next((i for i,v in enumerate(vals) if 'ticker' in v.lower() or 'symbol' in v.lower()), None)
+                wi = next((i for i,v in enumerate(vals) if 'weight' in v.lower() or 'net assets' in v.lower() or 'portfolio weight' in v.lower()), None)
+                break
+        if header_idx is None:
+            # Some provider tables use separate/multi-level headers; combine up to 3 rows.
+            for ri in range(min(3, len(grid))):
+                vals = []
+                for ci in range(max(len(x) for x in grid[ri:ri+3])):
+                    vals.append(' '.join(row[ci] for row in grid[ri:ri+3] if ci < len(row)))
+                joined = ' | '.join(vals).lower()
+                if ('ticker' in joined or 'symbol' in joined) and ('weight' in joined or 'net assets' in joined):
+                    header_idx = ri
+                    ti = next((i for i,v in enumerate(vals) if 'ticker' in v.lower() or 'symbol' in v.lower()), None)
+                    wi = next((i for i,v in enumerate(vals) if 'weight' in v.lower() or 'net assets' in v.lower()), None)
+                    break
+        if header_idx is None or ti is None or wi is None: continue
         rows=[]
-        for _, row in table.iterrows():
-            sym=clean_ticker(row.iloc[ticker_idx])
-            weight=parse_weight(row.iloc[weight_idx])
+        for vals in grid[header_idx+1:]:
+            if ti >= len(vals) or wi >= len(vals): continue
+            sym=clean_ticker(vals[ti]); weight=parse_weight(vals[wi])
             if sym and weight is not None: rows.append({'ticker':sym,'weight_pct':weight})
-        if len(rows) >= 10:
-            candidates.append(rows)
-    if not candidates: raise RuntimeError(f'{ticker}: could not identify a holdings table from official provider page')
+        if len(rows) >= 10: candidates.append(rows)
+
+    # Fallback: provider pages sometimes expose holdings as pipe-separated table text.
+    if not candidates:
+        text = soup.get_text('\n', strip=True)
+        lines = [x.strip() for x in text.splitlines() if x.strip()]
+        in_holdings = False
+        rows=[]
+        for line in lines:
+            low=line.lower()
+            if 'ticker' in low and ('% of net assets' in low or 'weight (%)' in low):
+                in_holdings=True; continue
+            if in_holdings:
+                parts = [x.strip() for x in re.split(r'\s*\|\s*', line)]
+                if len(parts) >= 3:
+                    sym=clean_ticker(parts[0]); weight=parse_weight(parts[2] if ticker=='SMH' else parts[4] if len(parts)>4 else parts[-1])
+                    if sym and weight is not None: rows.append({'ticker':sym,'weight_pct':weight})
+                if len(rows) >= 10 and ('scroll' in low or 'fees' in low): break
+        if len(rows) >= 10: candidates.append(rows)
+
+    if not candidates:
+        raise RuntimeError(f'{ticker}: holdings table not found in returned HTML (HTTP {r.status_code}, {len(r.text)} chars). Provider may be serving a JS-only or bot-blocked page.')
     return max(candidates, key=len)
 
 def main():
