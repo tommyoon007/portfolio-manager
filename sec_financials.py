@@ -298,6 +298,20 @@ def main():
     if not isinstance(tickers, list):
         raise RuntimeError('sec_tickers.json must contain a JSON array of ticker symbols.')
 
+    # Include current underlying holdings from the official SMH/SOXX issuer datasets.
+    holdings_file = Path('etf_holdings.json')
+    if holdings_file.exists():
+        try:
+            holdings_payload = json.loads(holdings_file.read_text(encoding='utf-8'))
+            for fund in holdings_payload.get('data', {}).values():
+                for holding in fund.get('holdings', []):
+                    symbol = str(holding.get('ticker', '')).upper().strip()
+                    if symbol and symbol not in tickers:
+                        tickers.append(symbol)
+            print(f'Included underlying ETF holdings in SEC universe; total requested symbols: {len(tickers)}')
+        except Exception as exc:
+            print(f'WARNING: could not merge etf_holdings.json into SEC ticker list: {exc}')
+
     # Build ticker -> CIK mapping automatically from the SEC's official file.
     # This removes the need to manually create sec_ticker_to_cik.json.
     mapping_file = Path('sec_ticker_to_cik.json')
