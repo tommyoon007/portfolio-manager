@@ -1,0 +1,146 @@
+{
+  "updated_at": "2026-10-18T21:48:17.797995+00:00",
+  "source": "Official VanEck/iShares holdings downloads",
+  "data": {
+    "SOXX": {
+      "source_url": "https://www.ishares.com/us/products/239705/ishares-semiconductor-etf/latest-holdings.csv",
+      "holdings_date": null,
+      "retrieved_at": "2026-10-18T21:48:17.797969+00:00",
+      "holdings": [
+        {
+          "ticker": "AMD",
+          "weight_pct": 9.42
+        },
+        {
+          "ticker": "INTC",
+          "weight_pct": 8.4
+        },
+        {
+          "ticker": "NVDA",
+          "weight_pct": 7.76
+        },
+        {
+          "ticker": "MU",
+          "weight_pct": 7.66
+        },
+        {
+          "ticker": "AVGO",
+          "weight_pct": 7.33
+        },
+        {
+          "ticker": "MRVL",
+          "weight_pct": 4.49
+        },
+        {
+          "ticker": "ADI",
+          "weight_pct": 4.4
+        },
+        {
+          "ticker": "TXN",
+          "weight_pct": 4.22
+        },
+        {
+          "ticker": "QCOM",
+          "weight_pct": 4.13
+        },
+        {
+          "ticker": "KLAC",
+          "weight_pct": 3.92
+        },
+        {
+          "ticker": "AMAT",
+          "weight_pct": 3.7
+        },
+        {
+          "ticker": "LRCX",
+          "weight_pct": 3.63
+        },
+        {
+          "ticker": "MPWR",
+          "weight_pct": 3.23
+        },
+        {
+          "ticker": "NXPI",
+          "weight_pct": 3.17
+        },
+        {
+          "ticker": "TSM",
+          "weight_pct": 3.07
+        },
+        {
+          "ticker": "TER",
+          "weight_pct": 2.9
+        },
+        {
+          "ticker": "SKHY",
+          "weight_pct": 2.68
+        },
+        {
+          "ticker": "ALAB",
+          "weight_pct": 2.34
+        },
+        {
+          "ticker": "MCHP",
+          "weight_pct": 2.16
+        },
+        {
+          "ticker": "CRDO",
+          "weight_pct": 1.64
+        },
+        {
+          "ticker": "ON",
+          "weight_pct": 1.55
+        },
+        {
+          "ticker": "ASML",
+          "weight_pct": 1.47
+        },
+        {
+          "ticker": "ENTG",
+          "weight_pct": 1.22
+        },
+        {
+          "ticker": "TSEM",
+          "weight_pct": 1.2
+        },
+        {
+          "ticker": "MTSI",
+          "weight_pct": 1.05
+        },
+        {
+          "ticker": "ASX",
+          "weight_pct": 0.93
+        },
+        {
+          "ticker": "CBRS",
+          "weight_pct": 0.74
+        },
+        {
+          "ticker": "UMC",
+          "weight_pct": 0.64
+        },
+        {
+          "ticker": "ARM",
+          "weight_pct": 0.46
+        },
+        {
+          "ticker": "STM",
+          "weight_pct": 0.4
+        },
+        {
+          "ticker": "XTSLA",
+          "weight_pct": 0.16
+        },
+        {
+          "ticker": "WFFUT",
+          "weight_pct": 0.01
+        }
+      ],
+      "count": 32,
+      "total_weight_pct": 100.08
+    }
+  },
+  "errors": {
+    "SMH": "SMH: could not parse official VanEck holdings download/page (HTTP 200, 284587 chars; candidates=2)"
+  }
+}
