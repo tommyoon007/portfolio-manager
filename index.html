@@ -2781,6 +2781,12 @@ function recommendationDetailsHtml(
                 다시 추천 비중을 계산하세요.
               </div>
 
+              ${
+                ["SMH", "SOXX", "MORT"].includes(String(item.ticker || "").toUpperCase())
+                  ? renderEtfFundamentalPanel(item.ticker)
+                  : ""
+              }
+
             </div>
 
           </td>
