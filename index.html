@@ -3052,6 +3052,12 @@ function recommendationDetailsHtml(
             </div>
 
 
+            ${details.etfScore ? `
+              <div class="detail-quality" style="margin-bottom:10px;">
+                <strong>ETF 참고점수: ${Number(details.score || 0).toFixed(1)} / 100</strong><br>
+                신뢰도: ${escapeHtml(details.etfScoreConfidence || "낮음")} · ${(details.etfScoreComponents || []).map(escapeHtml).join(" · ")}<br>
+                ${escapeHtml(details.etfScoreNote || "ETF 유형별 참고점수입니다.")} ${details.etfScoreDataDate ? "기준일: " + escapeHtml(details.etfScoreDataDate) : ""}
+              </div>` : ""}
             ${
               ["SMH", "SOXX", "MORT"].includes(String(item.ticker || "").toUpperCase())
                 ? renderEtfFundamentalPanel(item.ticker)
@@ -3497,7 +3503,7 @@ function recommendationDetailsHtml(
         class="mobile-detail"
       >
         <div style="font-size:10px;font-weight:800;color:#fff;">추천 점수 세부내역</div>
-        ${details.etfScore ? `<div style="margin-top:6px;color:#aab3bf;font-size:10px;line-height:1.45;">ETF는 기업 펀더멘털 대신 역할·분산·집중도 특성을 반영합니다. ETF 추천점수: <strong style="color:#fff;">${Number(details.score || 0).toFixed(0)} / 100</strong></div>` : ""}
+        ${details.etfScore ? `<div style="margin-top:6px;color:#aab3bf;font-size:10px;line-height:1.45;">ETF 참고점수: <strong style="color:#fff;">${Number(details.score || 0).toFixed(1)} / 100</strong> · 신뢰도 ${details.etfScoreConfidence || "낮음"}<br>${(details.etfScoreComponents || []).join(" · ")}<br>${details.etfScoreNote || "ETF는 기업 펀더멘털과 직접 비교하지 않습니다."} ${details.etfScoreDataDate ? "기준일: " + details.etfScoreDataDate : ""}</div>` : ""}
 
         <div class="mobile-detail-grid">
           <div class="mobile-detail-item">
@@ -5814,9 +5820,9 @@ function recommendationDetailsHtml(
 
   /* =========================================================
      ETF 추천점수
-     ETF는 개별기업 재무제표가 없으므로 50점 중립값 대신
-     자산군 역할·분산도·집중도·변동성 특성을 반영한 별도 점수를 사용합니다.
-     점수는 예상수익률이 아니라 포트폴리오 적합성의 상대점수입니다.
+     일반 ETF는 역할별 기본점수를 유지합니다.
+     SMH/SOXX/MORT는 발행사 프로필의 실제 수치를 공식화한 산식으로 평가합니다.
+     주의: 프로필 수치는 현재 정적 스냅샷이며 실시간 자동 갱신 데이터가 아닙니다.
   ========================================================= */
 
   const ETF_RECOMMENDATION_SCORES = {
@@ -5840,8 +5846,83 @@ function recommendationDetailsHtml(
     bond: BOND_ETF_TICKERS
   };
 
+  function parseEtfMetric(value) {
+    if (value === null || value === undefined) return null;
+    const n = Number(String(value).replace(/[$,%B,M]/g, "").trim());
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function getEtfCalculatedScore(ticker) {
+    const symbol = String(ticker || "").toUpperCase();
+    const p = ETF_FUNDAMENTAL_PROFILES[symbol];
+    if (!p || !["SMH", "SOXX", "MORT"].includes(symbol)) return null;
+
+    const assetsText = String(p.assets || "");
+    let assetsB = null;
+    const assetMatch = assetsText.match(/\$?([0-9.]+)\s*(B|M)/i);
+    if (assetMatch) assetsB = Number(assetMatch[1]) * (assetMatch[2].toUpperCase() === "M" ? 0.001 : 1);
+    const expense = parseEtfMetric(p.expense);
+    const secYield = parseEtfMetric(p.secYield);
+    const pe = parseEtfMetric(p.pe);
+    const pb = parseEtfMetric(p.pb);
+
+    // 50점에서 시작해 AUM(규모), 낮은 운용보수에 제한된 가산점을 부여합니다.
+    let score = 50;
+    const components = [];
+    if (assetsB !== null) {
+      const aumPoints = Math.max(0, Math.min(5, 2 + Math.log10(Math.max(0.001, assetsB)) * 1.2));
+      score += aumPoints;
+      components.push("규모 +" + aumPoints.toFixed(1));
+    }
+    if (expense !== null) {
+      const feePoints = Math.max(-4, Math.min(4, (0.40 - expense) * 20));
+      score += feePoints;
+      components.push("보수 " + (feePoints >= 0 ? "+" : "") + feePoints.toFixed(1));
+    }
+
+    if (symbol === "SOXX" || symbol === "SMH") {
+      // 반도체 ETF는 높은 성장 기대가 이미 가격에 반영됐을 가능성을 PER/PBR로 제한 반영.
+      if (pe !== null) {
+        const pePenalty = Math.min(10, Math.max(0, (pe - 25) * 0.25));
+        score -= pePenalty;
+        components.push("PER 부담 -" + pePenalty.toFixed(1));
+      } else {
+        score -= 4; // SMH는 현재 프로필에서 PER/PBR이 확인되지 않아 데이터 불확실성 감점
+        components.push("밸류에이션 미확인 -4.0");
+      }
+      if (pb !== null) {
+        const pbPenalty = Math.min(5, Math.max(0, (pb - 5) * 0.40));
+        score -= pbPenalty;
+        components.push("PBR 부담 -" + pbPenalty.toFixed(1));
+      } else if (pe !== null) {
+        score -= 2;
+        components.push("PBR 미확인 -2.0");
+      }
+      // SEC 수익률은 성장주 ETF의 투자매력 점수로 과대 반영하지 않습니다.
+      if (secYield === null) components.push("SEC 수익률 미확인");
+    } else if (symbol === "MORT") {
+      // MORT는 높은 분배율을 수익성/안전성으로 오인하지 않도록 가산점을 거의 주지 않습니다.
+      const yieldPoints = secYield === null ? 0 : Math.min(1.5, Math.max(0, secYield * 0.08));
+      score += yieldPoints;
+      score -= 8; // 모기지 REIT·레버리지·금리/스프레드 민감도에 대한 구조적 위험 할인
+      components.push("SEC 수익률 제한 가산 +" + yieldPoints.toFixed(1));
+      components.push("모기지 REIT/금리 위험 -8.0");
+    }
+
+    score = Math.round(Math.max(0, Math.min(100, score)) * 10) / 10;
+    return {
+      score,
+      components,
+      dataDate: p.valuationDate || p.assetsDate || p.yieldDate || "기준일 미확인",
+      confidence: (symbol === "SOXX" && pe !== null && pb !== null) ? "중간" : "낮음",
+      note: "발행사 공개 지표 기반 참고점수이며 실시간 점수/수익률 예측이 아닙니다."
+    };
+  }
+
   function getEtfRecommendationScore(ticker, assetType) {
     const symbol = String(ticker || "").toUpperCase();
+    const calculated = getEtfCalculatedScore(symbol);
+    if (calculated) return calculated.score;
     if (assetType === "BOND_ETF" || ETF_SCORE_GROUPS.bond.has(symbol)) return ETF_RECOMMENDATION_SCORES.bond;
     if (ETF_SCORE_GROUPS.mortgage.has(symbol)) return ETF_RECOMMENDATION_SCORES.mortgage;
     if (ETF_SCORE_GROUPS.crypto.has(symbol)) return ETF_RECOMMENDATION_SCORES.crypto;
@@ -5885,7 +5966,9 @@ function recommendationDetailsHtml(
   function calculateRecommendationScore(data, assetType = "STOCK") {
 
     if (assetType === "ETF" || assetType === "BOND_ETF") {
-      const etfScore = getEtfRecommendationScore(data && data.__ticker, assetType);
+      const etfTicker = data && data.__ticker;
+      const etfCalculated = getEtfCalculatedScore(etfTicker);
+      const etfScore = getEtfRecommendationScore(etfTicker, assetType);
       return {
         score: etfScore,
         rawScore: etfScore,
@@ -5897,10 +5980,14 @@ function recommendationDetailsHtml(
         risk: null,
         neutral: true,
         etfScore: true,
+        etfScoreComponents: etfCalculated ? etfCalculated.components : [],
+        etfScoreConfidence: etfCalculated ? etfCalculated.confidence : "낮음",
+        etfScoreDataDate: etfCalculated ? etfCalculated.dataDate : null,
+        etfScoreNote: etfCalculated ? etfCalculated.note : "ETF 유형별 기본점수이며 개별 ETF 지표 계산은 미적용",
         confidenceFactor: 1,
-        dataQuality: { available: 0, total: 0, percent: null },
+        dataQuality: { available: etfCalculated ? etfCalculated.components.length : 0, total: etfCalculated ? 6 : 0, percent: etfCalculated ? Math.min(100, Math.round(etfCalculated.components.length / 6 * 100)) : null },
         metrics: {},
-        modelNote: "ETF 별도평가"
+        modelNote: etfCalculated ? "ETF 발행사 지표 기반 참고평가" : "ETF 별도평가"
       };
     }
 
@@ -6703,6 +6790,18 @@ function recommendationDetailsHtml(
 
               etfScore:
                 result.details.etfScore || false,
+
+              etfScoreComponents:
+                result.details.etfScoreComponents || [],
+
+              etfScoreConfidence:
+                result.details.etfScoreConfidence || "낮음",
+
+              etfScoreDataDate:
+                result.details.etfScoreDataDate || null,
+
+              etfScoreNote:
+                result.details.etfScoreNote || "",
 
               assetType:
                 result.assetType,
