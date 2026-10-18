@@ -2675,7 +2675,79 @@
      추천 세부점수 HTML
   ========================================================= */
 
-  function recommendationDetailsHtml(
+    // ETF 프로필은 발행사 공식 페이지에서 확인한 값이며, 각 항목의 기준일을 함께 표시합니다.
+  // 값이 없는 지표는 임의로 추정하지 않습니다.
+  const ETF_FUNDAMENTAL_PROFILES = {
+    SMH: {
+      name: "VanEck Semiconductor ETF",
+      assets: "$71.21B",
+      assetsDate: "2026-10-13",
+      expense: "0.35%",
+      secYield: "0.15%",
+      yieldDate: "2026-10-13",
+      pe: "공식 페이지에서 최신값 미확인",
+      pb: "공식 페이지에서 최신값 미확인",
+      source: "https://www.vaneck.com/us/en/investments/semiconductor-etf-smh/"
+    },
+    SOXX: {
+      name: "iShares Semiconductor ETF",
+      assets: "$48.19B",
+      assetsDate: "2026-10-07",
+      expense: "0.33%",
+      secYield: "0.21%",
+      yieldDate: "2026-08-31",
+      pe: "51.34",
+      pb: "11.50",
+      valuationDate: "2026-10-07",
+      source: "https://www.ishares.com/us/products/239705/ishares-phlx-semiconductor-etf"
+    },
+    MORT: {
+      name: "VanEck Mortgage REIT Income ETF",
+      assets: "$348.44M",
+      assetsDate: "2026-09-10",
+      expense: "0.43%",
+      secYield: "13.79%",
+      yieldDate: "2026-09-10",
+      distributionYield: "18.11%",
+      trailingYield: "15.81%",
+      pe: "해당 ETF 특성상 일반 주식형 ETF와 직접 비교 부적합",
+      pb: "해당 ETF 특성상 일반 주식형 ETF와 직접 비교 부적합",
+      source: "https://www.vaneck.com/us/en/investments/mortgage-reit-income-mort/overview/"
+    }
+  };
+
+  function renderEtfFundamentalPanel(ticker) {
+    const symbol = String(ticker || "").toUpperCase();
+    const f = ETF_FUNDAMENTAL_PROFILES[symbol];
+    if (!f) return "";
+    const card = (label, value) => `
+      <div class="detail-data-item">
+        <div class="detail-data-label">${label}</div>
+        <div class="detail-data-value">${value || "미확인"}</div>
+      </div>`;
+    const valuation = f.valuationDate ? `기준일 ${f.valuationDate}` : "공식 최신 수치 미확인";
+    return `
+      <div class="detail-title">🔎 ETF 운용·펀더멘털 지표</div>
+      <div class="detail-asset-info">${f.name}</div>
+      <div class="detail-data">
+        ${card("운용자산(AUM)", f.assets)}
+        ${card("운용자산 기준일", f.assetsDate)}
+        ${card("연간 운용보수", f.expense)}
+        ${card("30일 SEC 수익률", f.secYield)}
+        ${card("PER", f.pe)}
+        ${card("PBR", f.pb)}
+        ${f.distributionYield ? card("분배금 수익률", f.distributionYield) : ""}
+        ${f.trailingYield ? card("최근 12개월 수익률", f.trailingYield) : ""}
+      </div>
+      <div class="detail-quality">
+        <strong>데이터 기준 및 출처</strong><br>
+        ${symbol === "SMH" ? "운용자산 기준일: 2026-10-13 · SEC 수익률 기준일: 2026-10-13" : symbol === "SOXX" ? "운용자산/PER/PBR 기준일: 2026-10-07 · SEC 수익률 기준일: 2026-08-31" : "운용자산/수익률 기준일: 2026-09-10"}<br>
+        PER·PBR은 제공된 공식 자료에서 최신 수치가 확인되지 않으면 추정하지 않습니다. ETF의 SEC 수익률과 분배금 수익률은 미래 배당을 보장하지 않습니다.<br>
+        <a href="${f.source}" target="_blank" rel="noopener noreferrer" style="color:#8db8ff">발행사 공식 자료 열기</a>
+      </div>`;
+  }
+
+function recommendationDetailsHtml(
     item
   ) {
 
@@ -2974,180 +3046,36 @@
             </div>
 
 
-            <div class="detail-title">
-              🔎 실제 사용된 재무 데이터
-            </div>
-
-
-            <div class="detail-data">
-
-              <div class="detail-data-item">
-
-                <div class="detail-data-label">
-                  매출 성장률
-                </div>
-
-                <div class="detail-data-value">
-                  ${formatMetricPercent(revenueGrowth)}
-                </div>
-
-              </div>
-
-
-              <div class="detail-data-item">
-
-                <div class="detail-data-label">
-                  이익 성장률
-                </div>
-
-                <div class="detail-data-value">
-                  ${formatMetricPercent(earningsGrowth)}
-                </div>
-
-              </div>
-
-
-              <div class="detail-data-item">
-
-                <div class="detail-data-label">
-                  영업이익률
-                </div>
-
-                <div class="detail-data-value">
-                  ${formatMetricPercent(operatingMargin)}
-                </div>
-
-              </div>
-
-
-              <div class="detail-data-item">
-
-                <div class="detail-data-label">
-                  ROE
-                </div>
-
-                <div class="detail-data-value">
-                  ${formatMetricPercent(roe)}
-                </div>
-
-              </div>
-
-
-              <div class="detail-data-item">
-
-                <div class="detail-data-label">
-                  Debt / Equity
-                </div>
-
-                <div class="detail-data-value">
-                  ${formatMetricNumber(debtToEquity)}
-                </div>
-
-              </div>
-
-
-              <div class="detail-data-item">
-
-                <div class="detail-data-label">
-                  Current Ratio
-                </div>
-
-                <div class="detail-data-value">
-                  ${formatMetricNumber(currentRatio)}
-                </div>
-
-              </div>
-
-
-              <div class="detail-data-item">
-
-                <div class="detail-data-label">
-                  영업현금흐름률
-                </div>
-
-                <div class="detail-data-value">
-                  ${formatMetricPercent(cashflowMargin)}
-                </div>
-
-              </div>
-
-
-              <div class="detail-data-item">
-
-                <div class="detail-data-label">
-                  PEG
-                </div>
-
-                <div class="detail-data-value">
-                  ${formatMetricNumber(peg)}
-                </div>
-
-              </div>
-
-
-              <div class="detail-data-item">
-
-                <div class="detail-data-label">
-                  PER
-                </div>
-
-                <div class="detail-data-value">
-                  ${formatMetricNumber(pe)}
-                </div>
-
-              </div>
-
-
-              <div class="detail-data-item">
-
-                <div class="detail-data-label">
-                  PSR
-                </div>
-
-                <div class="detail-data-value">
-                  ${formatMetricNumber(ps)}
-                </div>
-
-              </div>
-
-
-              <div class="detail-data-item">
-
-                <div class="detail-data-label">
-                  EV / EBITDA
-                </div>
-
-                <div class="detail-data-value">
-                  ${formatMetricNumber(evEbitda)}
-                </div>
-
-              </div>
-
-
-              <div class="detail-data-item">
-
-                <div class="detail-data-label">
-                  Beta
-                </div>
-
-                <div class="detail-data-value">
-                  ${formatMetricNumber(beta)}
-                </div>
-
-              </div>
-
-            </div>
-
-
-            <div class="detail-quality">
-              <strong>지표 확보 현황</strong><br>
-              재무·현금흐름: ${quality.fundamental ? quality.fundamental.available + "/" + quality.fundamental.total + "개 (" + quality.fundamental.percent.toFixed(0) + "%)" : "확인 불가"}<br>
-              시장·밸류에이션: ${quality.market ? quality.market.available + "/" + quality.market.total + "개 (" + quality.market.percent.toFixed(0) + "%)" : "확인 불가"}<br>
-              미래 전망치: 현재 앱에서 애널리스트 매출/EPS 전망 데이터를 연결하지 않았습니다.<br>
-              주식 희석률은 현재 원천 데이터의 신뢰성 문제로 확보율 계산에서 제외했습니다.<br>
-              ${quality.missing && quality.missing.length ? "누락 항목: " + escapeHtml(quality.missing.join(" · ")) + "<br>" : ""}
-              데이터가 없는 항목은 <span class="detail-neutral">중립점수</span>로 계산됩니다. 확보율은 값 존재 여부만 나타내며, 최신성·정확성을 보증하지 않습니다.
-            </div>
+            ${
+              ["SMH", "SOXX", "MORT"].includes(String(item.ticker || "").toUpperCase())
+                ? renderEtfFundamentalPanel(item.ticker)
+                : `
+                  <div class="detail-title">🔎 실제 사용된 재무 데이터</div>
+                  <div class="detail-data">
+                    <div class="detail-data-item"><div class="detail-data-label">매출 성장률</div><div class="detail-data-value">${formatMetricPercent(revenueGrowth)}</div></div>
+                    <div class="detail-data-item"><div class="detail-data-label">이익 성장률</div><div class="detail-data-value">${formatMetricPercent(earningsGrowth)}</div></div>
+                    <div class="detail-data-item"><div class="detail-data-label">영업이익률</div><div class="detail-data-value">${formatMetricPercent(operatingMargin)}</div></div>
+                    <div class="detail-data-item"><div class="detail-data-label">ROE</div><div class="detail-data-value">${formatMetricPercent(roe)}</div></div>
+                    <div class="detail-data-item"><div class="detail-data-label">Debt / Equity</div><div class="detail-data-value">${formatMetricNumber(debtToEquity)}</div></div>
+                    <div class="detail-data-item"><div class="detail-data-label">Current Ratio</div><div class="detail-data-value">${formatMetricNumber(currentRatio)}</div></div>
+                    <div class="detail-data-item"><div class="detail-data-label">영업현금흐름률</div><div class="detail-data-value">${formatMetricPercent(cashflowMargin)}</div></div>
+                    <div class="detail-data-item"><div class="detail-data-label">PEG</div><div class="detail-data-value">${formatMetricNumber(peg)}</div></div>
+                    <div class="detail-data-item"><div class="detail-data-label">PER</div><div class="detail-data-value">${formatMetricNumber(pe)}</div></div>
+                    <div class="detail-data-item"><div class="detail-data-label">PSR</div><div class="detail-data-value">${formatMetricNumber(ps)}</div></div>
+                    <div class="detail-data-item"><div class="detail-data-label">EV / EBITDA</div><div class="detail-data-value">${formatMetricNumber(evEbitda)}</div></div>
+                    <div class="detail-data-item"><div class="detail-data-label">Beta</div><div class="detail-data-value">${formatMetricNumber(beta)}</div></div>
+                  </div>
+                  <div class="detail-quality">
+                    <strong>지표 확보 현황</strong><br>
+                    재무·현금흐름: ${quality.fundamental ? quality.fundamental.available + "/" + quality.fundamental.total + "개 (" + quality.fundamental.percent.toFixed(0) + "%)" : "확인 불가"}<br>
+                    시장·밸류에이션: ${quality.market ? quality.market.available + "/" + quality.market.total + "개 (" + quality.market.percent.toFixed(0) + "%)" : "확인 불가"}<br>
+                    미래 전망치: 현재 앱에서 애널리스트 매출/EPS 전망 데이터를 연결하지 않았습니다.<br>
+                    주식 희석률은 현재 원천 데이터의 신뢰성 문제로 확보율 계산에서 제외했습니다.<br>
+                    ${quality.missing && quality.missing.length ? "누락 항목: " + escapeHtml(quality.missing.join(" · ")) + "<br>" : ""}
+                    데이터가 없는 항목은 <span class="detail-neutral">중립점수</span>로 계산됩니다. 확보율은 값 존재 여부만 나타내며, 최신성·정확성을 보증하지 않습니다.
+                  </div>
+                `
+            }
 
           </div>
 
