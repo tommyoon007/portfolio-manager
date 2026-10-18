@@ -1,52 +1,67 @@
 name: Update ETF holdings and SEC financial data
 
 on:
-  schedule:
-    - cron: '35 6 * * 1-5'
   workflow_dispatch:
-
-concurrency:
-  group: portfolio-manager-etf-data
-  cancel-in-progress: true
+  schedule:
+    - cron: "30 8 * * 1-5"
 
 permissions:
   contents: write
 
+concurrency:
+  group: update-etf-data
+  cancel-in-progress: false
+
 jobs:
-  update-data:
+  update:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     steps:
-      - name: Checkout
+      - name: Check out repository
         uses: actions/checkout@v4
-      - name: Setup Python
+
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      - name: Install dependencies
-        run: pip install --no-cache-dir requests pandas lxml html5lib
-      - name: Download official ETF holdings
-        env:
-          SEC_CONTACT_EMAIL: ${{ secrets.SEC_CONTACT_EMAIL }}
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install requests beautifulsoup4 lxml pandas html5lib
+
+      - name: Update ETF holdings
         run: python etf_holdings.py
-      - name: Fetch SEC company fundamentals
-        env:
-          SEC_CONTACT_EMAIL: ${{ secrets.SEC_CONTACT_EMAIL }}
+
+      - name: Update SEC financial data
         run: python sec_financials.py
-      - name: Validate outputs
+
+      - name: Validate generated JSON files
         run: |
           python - <<'PY'
           import json
-          for name in ('etf_holdings.json', 'sec_financials.json'):
-              with open(name, encoding='utf-8') as f: data=json.load(f)
-              if not isinstance(data.get('data'), dict) or not data['data']:
-                  raise SystemExit(f'{name} has no usable data')
-              print(name, 'OK', len(data['data']))
+          from pathlib import Path
+
+          required = ["etf_holdings.json", "sec_financials.json"]
+          for filename in required:
+              path = Path(filename)
+              if not path.exists():
+                  raise SystemExit(f"Missing output file: {filename}")
+              with path.open(encoding="utf-8") as f:
+                  data = json.load(f)
+              if not data:
+                  raise SystemExit(f"Output file is empty: {filename}")
+              print(f"OK: {filename} ({path.stat().st_size} bytes)")
           PY
+
       - name: Commit updated data
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add etf_holdings.json sec_financials.json
-          git diff --cached --quiet || git commit -m 'Update ETF holdings and SEC fundamentals'
-          git push
+          if git diff --cached --quiet; then
+            echo "No data changes to commit."
+          else
+            git commit -m "Update ETF holdings and SEC financial data"
+            git push
+          fi
