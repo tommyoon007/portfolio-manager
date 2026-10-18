@@ -23,7 +23,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
 
       - name: Install Python dependencies
         run: |
@@ -42,8 +41,7 @@ jobs:
           import json
           from pathlib import Path
 
-          required = ["etf_holdings.json", "sec_financials.json"]
-          for filename in required:
+          for filename in ("etf_holdings.json", "sec_financials.json"):
               path = Path(filename)
               if not path.exists():
                   raise SystemExit(f"Missing output file: {filename}")
