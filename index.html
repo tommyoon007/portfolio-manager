@@ -1823,9 +1823,13 @@
   // 앱에는 사용자가 실제로 입력한 holdings만 표시되며,
   // 이 파일은 해당 holdings의 재무데이터를 조회할 때만 사용됩니다.
   const SEC_FINANCIALS_URL = "./sec_financials.json";
+  const ETF_HOLDINGS_URL = "./etf_holdings.json";
   let secFinancials = null;
   let secFinancialsLoaded = false;
   let secFinancialsLoadPromise = null;
+  let etfHoldingsData = null;
+  let etfHoldingsLoaded = false;
+  let etfHoldingsLoadPromise = null;
 
   let lastUpdatedAt =
     localStorage.getItem(
@@ -2732,6 +2736,18 @@
     const symbol = String(ticker || "").toUpperCase();
     const f = ETF_FUNDAMENTAL_PROFILES[symbol];
     if (!f) return "";
+    const holdingsRecord = getEtfHoldingsRecord(symbol);
+    const dynamicTopHoldings = holdingsRecord
+      ? holdingsRecord.holdings.slice().sort((a, b) => Number(b.weight_pct) - Number(a.weight_pct)).slice(0, 5)
+          .map(h => `${h.ticker} ${Number(h.weight_pct).toFixed(2)}%`).join(" · ")
+      : "";
+    const displayTopHoldings = dynamicTopHoldings || f.topHoldings;
+    const displayTop1 = holdingsRecord && holdingsRecord.holdings.length
+      ? Math.max(...holdingsRecord.holdings.map(h => Number(h.weight_pct) || 0))
+      : f.top1Weight;
+    const displayTop5 = holdingsRecord && holdingsRecord.holdings.length
+      ? holdingsRecord.holdings.slice().sort((a, b) => Number(b.weight_pct) - Number(a.weight_pct)).slice(0, 5).reduce((sum, h) => sum + (Number(h.weight_pct) || 0), 0)
+      : f.top5Weight;
     const card = (label, value) => `
       <div class="detail-data-item">
         <div class="detail-data-label">${label}</div>
@@ -2750,11 +2766,11 @@
         ${card("PBR", f.pb)}
         ${f.distributionYield ? card("분배금 수익률", f.distributionYield) : ""}
         ${f.trailingYield ? card("최근 12개월 수익률", f.trailingYield) : ""}
-        ${f.topHolding ? card("최대 편입종목", f.topHolding) : ""}
-        ${f.top5Weight !== undefined ? card("상위 5개 종목 비중", Number(f.top5Weight).toFixed(2) + "%") : ""}
+        ${displayTopHoldings ? card("최대 편입종목", displayTopHoldings.split(" · ")[0]) : ""}
+        ${displayTop5 !== undefined ? card("상위 5개 종목 비중", Number(displayTop5).toFixed(2) + "%") : ""}
         ${f.riskNote ? card("핵심 위험", f.riskNote) : ""}
       </div>
-      ${f.topHoldings ? `<div class="detail-quality"><strong>상위 편입종목 (${f.holdingsDate})</strong><br>${f.topHoldings}</div>` : ""}
+      ${displayTopHoldings ? `<div class="detail-quality"><strong>상위 편입종목 (${holdingsRecord ? (holdingsRecord.holdings_date || holdingsRecord.retrieved_at || "기준일 미확인") : f.holdingsDate})</strong><br>${displayTopHoldings}</div>` : ""}
       ${f.riskNote ? `<div class="detail-quality"><strong>MORT 해석 주의</strong><br>높은 SEC 수익률·분배금 수익률은 분배금 지속성이나 원금 안정성을 보장하지 않습니다. 금리와 MBS 스프레드 변화, 레버리지 비용에 따라 가격과 분배금이 함께 변할 수 있습니다.</div>` : ""}
       <div class="detail-quality">
         <strong>데이터 기준 및 출처</strong><br>
@@ -4848,6 +4864,33 @@ function recommendationDetailsHtml(
     return secFinancialsLoadPromise;
   }
 
+  async function loadEtfHoldings() {
+    if (etfHoldingsLoaded) return etfHoldingsData || {};
+    if (etfHoldingsLoadPromise) return etfHoldingsLoadPromise;
+    etfHoldingsLoadPromise = (async () => {
+      try {
+        const response = await fetch(ETF_HOLDINGS_URL + "?v=" + Date.now(), { cache: "no-store" });
+        if (!response.ok) throw new Error("ETF 편입종목 파일 HTTP " + response.status);
+        const payload = await response.json();
+        etfHoldingsData = payload && payload.data && typeof payload.data === "object" ? payload.data : {};
+      } catch (error) {
+        console.warn("ETF 편입종목 데이터 로드 실패:", error);
+        etfHoldingsData = {};
+      } finally {
+        etfHoldingsLoaded = true;
+        etfHoldingsLoadPromise = null;
+      }
+      return etfHoldingsData;
+    })();
+    return etfHoldingsLoadPromise;
+  }
+
+  function getEtfHoldingsRecord(ticker) {
+    const symbol = String(ticker || "").trim().toUpperCase();
+    const record = etfHoldingsData && etfHoldingsData[symbol];
+    return record && Array.isArray(record.holdings) ? record : null;
+  }
+
   function getSecRecord(ticker) {
     const symbol = String(ticker || "").trim().toUpperCase();
     if (!secFinancials || !symbol) return null;
@@ -5869,6 +5912,52 @@ function recommendationDetailsHtml(
     return Number.isFinite(n) ? n : null;
   }
 
+  function getEtfWeightedFundamentals(ticker) {
+    const record = getEtfHoldingsRecord(ticker);
+    if (!record || !Array.isArray(record.holdings) || !secFinancials) return null;
+    const metrics = ["QuarterlyRevenueGrowthYOY", "OperatingMarginTTM", "FreeCashFlowTTM", "RevenueTTM", "ReturnOnEquityTTM", "DebtToEquity"];
+    const sums = Object.fromEntries(metrics.map(key => [key, 0]));
+    const weights = Object.fromEntries(metrics.map(key => [key, 0]));
+    let totalHoldingsWeight = 0;
+    let matchedTickers = 0;
+    const normalizedHoldings = record.holdings
+      .filter(h => h && h.ticker && Number.isFinite(Number(h.weight_pct)) && Number(h.weight_pct) > 0)
+      .map(h => ({ ticker: String(h.ticker).toUpperCase(), weight: Number(h.weight_pct) }));
+    for (const holding of normalizedHoldings) {
+      totalHoldingsWeight += holding.weight;
+      const data = getSecRecord(holding.ticker);
+      if (!data) continue;
+      let matched = false;
+      for (const key of metrics) {
+        const value = Number(data[key]);
+        if (!Number.isFinite(value)) continue;
+        // SEC 원자료에서 비정상적으로 큰 비율이 나타나는 경우 가중평균을 왜곡하지 않도록 제외합니다.
+        if (key === "QuarterlyRevenueGrowthYOY" && Math.abs(value) > 500) continue;
+        if (key === "OperatingMarginTTM" && (value < -100 || value > 100)) continue;
+        if (key === "ReturnOnEquityTTM" && Math.abs(value) > 200) continue;
+        if (key === "DebtToEquity" && (value < 0 || value > 1000)) continue;
+        if (key === "FreeCashFlowTTM" && !(Number(data.RevenueTTM) > 0)) continue;
+        // FCF is converted to FCF margin so that company size does not distort the ETF average.
+        const metricValue = key === "FreeCashFlowTTM" ? value / Number(data.RevenueTTM) * 100 : value;
+        sums[key] += metricValue * holding.weight;
+        weights[key] += holding.weight;
+        matched = true;
+      }
+      if (matched) matchedTickers++;
+    }
+    const averages = {};
+    for (const key of metrics) averages[key] = weights[key] > 0 ? sums[key] / weights[key] : null;
+    return {
+      averages,
+      matchedTickers,
+      holdingsCount: normalizedHoldings.length,
+      totalHoldingsWeight: Math.round(totalHoldingsWeight * 100) / 100,
+      holdingsDate: record.holdings_date || null,
+      retrievedAt: record.retrieved_at || null,
+      source: record.source_url || record.source || "ETF holdings JSON"
+    };
+  }
+
   function getEtfCalculatedScore(ticker) {
     const symbol = String(ticker || "").toUpperCase();
     const p = ETF_FUNDAMENTAL_PROFILES[symbol];
@@ -5882,8 +5971,11 @@ function recommendationDetailsHtml(
     const secYield = parseEtfMetric(p.secYield);
     const pe = parseEtfMetric(p.pe);
     const pb = parseEtfMetric(p.pb);
+    const weighted = ["SMH", "SOXX"].includes(symbol) ? getEtfWeightedFundamentals(symbol) : null;
+    const liveHoldings = getEtfHoldingsRecord(symbol);
+    const holdingRows = liveHoldings ? liveHoldings.holdings.filter(h => h && Number.isFinite(Number(h.weight_pct)) && Number(h.weight_pct) > 0) : [];
+    const topRows = holdingRows.slice().sort((a, b) => Number(b.weight_pct) - Number(a.weight_pct));
 
-    // 50점에서 시작해 AUM(규모), 낮은 운용보수에 제한된 가산점을 부여합니다.
     let score = 50;
     const components = [];
     if (assetsB !== null) {
@@ -5898,52 +5990,78 @@ function recommendationDetailsHtml(
     }
 
     if (symbol === "SOXX" || symbol === "SMH") {
-      // 반도체 ETF는 높은 성장 기대가 이미 가격에 반영됐을 가능성을 PER/PBR로 제한 반영.
-      if (pe !== null) {
-        const pePenalty = Math.min(10, Math.max(0, (pe - 25) * 0.25));
-        score -= pePenalty;
-        components.push("PER 부담 -" + pePenalty.toFixed(1));
+      if (weighted && weighted.matchedTickers > 0) {
+        const a = weighted.averages;
+        // 편입비중 가중평균 실적 기반 보조점수. 각 지표는 점수 변동폭을 제한합니다.
+        if (a.QuarterlyRevenueGrowthYOY !== null) {
+          const points = Math.max(-5, Math.min(7, a.QuarterlyRevenueGrowthYOY * 0.08));
+          score += points; components.push("편입종목 매출성장 가중평균 " + a.QuarterlyRevenueGrowthYOY.toFixed(1) + "% (" + (points >= 0 ? "+" : "") + points.toFixed(1) + ")");
+        }
+        if (a.OperatingMarginTTM !== null) {
+          const points = Math.max(-5, Math.min(5, (a.OperatingMarginTTM - 15) * 0.12));
+          score += points; components.push("영업이익률 가중평균 " + a.OperatingMarginTTM.toFixed(1) + "% (" + (points >= 0 ? "+" : "") + points.toFixed(1) + ")");
+        }
+        if (a.FreeCashFlowTTM !== null) {
+          const points = Math.max(-4, Math.min(4, a.FreeCashFlowTTM * 0.20));
+          score += points; components.push("FCF 마진 가중평균 " + a.FreeCashFlowTTM.toFixed(1) + "% (" + (points >= 0 ? "+" : "") + points.toFixed(1) + ")");
+        }
+        if (a.ReturnOnEquityTTM !== null) {
+          const points = Math.max(-3, Math.min(3, (a.ReturnOnEquityTTM - 10) * 0.05));
+          score += points; components.push("ROE 가중평균 " + a.ReturnOnEquityTTM.toFixed(1) + "% (" + (points >= 0 ? "+" : "") + points.toFixed(1) + ")");
+        }
+        if (a.DebtToEquity !== null) {
+          const points = -Math.max(0, Math.min(3, a.DebtToEquity * 0.015));
+          score += points; components.push("부채/자본 가중평균 " + a.DebtToEquity.toFixed(1) + "% (" + points.toFixed(1) + ")");
+        }
+        components.push("SEC 재무자료 연결 " + weighted.matchedTickers + "/" + weighted.holdingsCount + "개 종목");
       } else {
-        score -= 4; // SMH는 현재 프로필에서 PER/PBR이 확인되지 않아 데이터 불확실성 감점
-        components.push("밸류에이션 미확인 -4.0");
+        // 실제 편입 데이터 또는 신뢰 가능한 SEC 수치가 없으면 기존 프로필 기반 산식을 유지합니다.
+        if (pe !== null) {
+          const pePenalty = Math.min(10, Math.max(0, (pe - 25) * 0.25));
+          score -= pePenalty; components.push("PER 부담 -" + pePenalty.toFixed(1));
+        } else {
+          score -= 4; components.push("밸류에이션 미확인 -4.0");
+        }
+        if (pb !== null) {
+          const pbPenalty = Math.min(5, Math.max(0, (pb - 5) * 0.40));
+          score -= pbPenalty; components.push("PBR 부담 -" + pbPenalty.toFixed(1));
+        } else if (pe !== null) {
+          score -= 2; components.push("PBR 미확인 -2.0");
+        }
       }
-      if (pb !== null) {
-        const pbPenalty = Math.min(5, Math.max(0, (pb - 5) * 0.40));
-        score -= pbPenalty;
-        components.push("PBR 부담 -" + pbPenalty.toFixed(1));
-      } else if (pe !== null) {
-        score -= 2;
-        components.push("PBR 미확인 -2.0");
+
+      // 편입 종목과 비중이 파일에 있을 때는 파일 기준 집중도를 계산합니다.
+      const top1 = topRows.length ? Number(topRows[0].weight_pct) : Number(p.top1Weight);
+      const top5 = topRows.length ? topRows.slice(0, 5).reduce((sum, h) => sum + Number(h.weight_pct), 0) : Number(p.top5Weight);
+      if (Number.isFinite(top1)) {
+        const penalty = Math.max(0, Math.min(4, (top1 - 10) * 0.30));
+        score -= penalty; components.push("최대종목 집중도 -" + penalty.toFixed(1));
       }
-      // 상위 종목 집중도 위험: 펀드 상위 보유비중 스냅샷을 반영
-      if (Number.isFinite(Number(p.top1Weight))) {
-        const top1Penalty = Math.max(0, Math.min(4, (Number(p.top1Weight) - 10) * 0.30));
-        score -= top1Penalty;
-        components.push("최대종목 집중도 -" + top1Penalty.toFixed(1));
+      if (Number.isFinite(top5)) {
+        const penalty = Math.max(0, Math.min(3, (top5 - 30) * 0.12));
+        score -= penalty; components.push("상위5종목 집중도 -" + penalty.toFixed(1));
       }
-      if (Number.isFinite(Number(p.top5Weight))) {
-        const top5Penalty = Math.max(0, Math.min(3, (Number(p.top5Weight) - 30) * 0.12));
-        score -= top5Penalty;
-        components.push("상위5종목 집중도 -" + top5Penalty.toFixed(1));
-      }
-      // SEC 수익률은 성장주 ETF의 투자매력 점수로 과대 반영하지 않습니다.
       if (secYield === null) components.push("SEC 수익률 미확인");
     } else if (symbol === "MORT") {
-      // MORT는 높은 분배율을 수익성/안전성으로 오인하지 않도록 가산점을 거의 주지 않습니다.
       const yieldPoints = secYield === null ? 0 : Math.min(1.5, Math.max(0, secYield * 0.08));
       score += yieldPoints;
-      score -= 8; // 모기지 REIT·레버리지·금리/스프레드 민감도에 대한 구조적 위험 할인
+      score -= 8;
       components.push("SEC 수익률 제한 가산 +" + yieldPoints.toFixed(1));
       components.push("모기지 REIT/금리 위험 -8.0");
     }
 
     score = Math.round(Math.max(0, Math.min(100, score)) * 10) / 10;
+    const dynamicDataDate = weighted ? (weighted.holdingsDate || weighted.retrievedAt || "편입파일 기준일 미확인") : null;
     return {
       score,
       components,
-      dataDate: [p.valuationDate, p.holdingsDate, p.assetsDate, p.yieldDate].filter(Boolean).join(" / ") || "기준일 미확인",
-      confidence: (symbol === "SOXX" && pe !== null && pb !== null && p.top5Weight !== undefined) ? "중간" : "낮음",
-      note: "발행사 공개 지표와 상위 편입비중 스냅샷 기반 참고점수입니다. 편입종목별 최신 실적을 가중평균한 점수는 아니며 실시간 자동 갱신도 아닙니다."
+      dataDate: [dynamicDataDate || p.valuationDate, p.holdingsDate, p.assetsDate, p.yieldDate].filter(Boolean).join(" / ") || "기준일 미확인",
+      confidence: weighted && weighted.matchedTickers >= 10 ? "중간" : ((symbol === "SOXX" && pe !== null && pb !== null && p.top5Weight !== undefined) ? "중간" : "낮음"),
+      note: weighted && weighted.matchedTickers > 0
+        ? "ETF 실제 편입비중과 SEC 기업재무를 가중평균한 참고점수입니다. 일부 기업의 SEC 지표는 누락·비정상값이 있어 해당 지표 계산에서 제외했으며, 밸류에이션(PER/PBR)은 별도 반영되지 않았습니다."
+        : (symbol === "SMH" && !liveHoldings
+          ? "현재 etf_holdings.json에 SMH 공식 편입 데이터가 없어 기존 프로필 기반 점수입니다. SMH 편입데이터가 정상 수집되면 자동으로 가중평균 평가로 전환됩니다."
+          : "발행사 공개 지표와 편입비중 스냅샷 기반 참고점수입니다. 편입종목별 최신 실적 가중평균 자료가 없으면 기존 프로필 점수를 사용합니다.")
     };
   }
 
@@ -7614,7 +7732,10 @@ function recommendationDetailsHtml(
   ========================================================= */
 
   init();
-
+  // ETF 편입종목 및 SEC 기업재무 JSON을 불러온 뒤 ETF 점수와 세부패널을 갱신합니다.
+  Promise.all([loadEtfHoldings(), loadSecFinancials()]).then(() => {
+    try { renderPortfolio(); } catch (error) { console.warn("ETF 재무점수 갱신 실패:", error); }
+  });
 
 
   function initRecommendationModeUI() {
