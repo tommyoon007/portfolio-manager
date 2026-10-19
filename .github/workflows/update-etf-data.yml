@@ -3,6 +3,7 @@ name: Update ETF holdings and SEC financial data
 on:
   workflow_dispatch:
   schedule:
+    # 08:30 UTC = 17:30 Korea time, Monday-Friday
     - cron: "30 8 * * 1-5"
 
 permissions:
@@ -15,6 +16,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Check out repository
@@ -24,6 +26,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
 
       - name: Install Python dependencies
         run: |
@@ -38,21 +41,62 @@ jobs:
           SEC_CONTACT_EMAIL: ${{ secrets.SEC_CONTACT_EMAIL }}
         run: python sec_financials.py
 
-      - name: Validate generated JSON files
+      - name: Validate generated JSON files and ETF holdings
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
 
-          for filename in ("etf_holdings.json", "sec_financials.json"):
+          def load_json(filename):
               path = Path(filename)
               if not path.exists():
-                  raise SystemExit(f"Missing output file: {filename}")
-              with path.open(encoding="utf-8") as f:
-                  data = json.load(f)
-              if not data:
-                  raise SystemExit(f"Output file is empty: {filename}")
+                  raise SystemExit(f"ERROR: Missing output file: {filename}")
+              try:
+                  with path.open(encoding="utf-8") as f:
+                      obj = json.load(f)
+              except Exception as exc:
+                  raise SystemExit(f"ERROR: Invalid JSON in {filename}: {exc}")
+              if not isinstance(obj, dict) or not obj:
+                  raise SystemExit(f"ERROR: {filename} must contain a non-empty JSON object")
               print(f"OK: {filename} ({path.stat().st_size} bytes)")
+              return obj
+
+          holdings_doc = load_json("etf_holdings.json")
+          sec_doc = load_json("sec_financials.json")
+
+          holdings_data = holdings_doc.get("data", {})
+          sec_data = sec_doc.get("data", {})
+          if not isinstance(holdings_data, dict):
+              raise SystemExit("ERROR: etf_holdings.json: 'data' must be an object")
+          if not isinstance(sec_data, dict):
+              raise SystemExit("ERROR: sec_financials.json: 'data' must be an object")
+
+          # Both ETFs are required for a complete ETF scoring update.
+          missing = []
+          for ticker in ("SMH", "SOXX"):
+              record = holdings_data.get(ticker)
+              if not isinstance(record, dict) or not isinstance(record.get("holdings"), list) or not record["holdings"]:
+                  detail = holdings_doc.get("errors", {}).get(ticker, "no holdings returned")
+                  missing.append(f"{ticker}: {detail}")
+          if missing:
+              raise SystemExit("ERROR: Required ETF holdings are missing:\n" + "\n".join(missing))
+
+          # Validate holding records and ensure at least one has a usable weight.
+          for ticker in ("SMH", "SOXX"):
+              holdings = holdings_data[ticker]["holdings"]
+              valid = [
+                  h for h in holdings
+                  if isinstance(h, dict)
+                  and isinstance(h.get("ticker"), str)
+                  and h.get("ticker", "").strip()
+                  and isinstance(h.get("weight_pct"), (int, float))
+                  and h["weight_pct"] > 0
+              ]
+              if not valid:
+                  raise SystemExit(f"ERROR: {ticker} has no valid ticker/weight_pct holding rows")
+              print(f"OK: {ticker} holdings ({len(valid)} valid rows)")
+
+          print(f"OK: SEC financial records ({len(sec_data)} tickers)")
           PY
 
       - name: Commit updated data
