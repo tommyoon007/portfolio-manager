@@ -1,143 +1,139 @@
 {
-  "updated_at": "2026-10-18T21:48:17.797995+00:00",
+  "updated_at": "2026-10-19T15:19:48.800731+00:00",
   "source": "Official VanEck/iShares holdings downloads",
   "data": {
     "SOXX": {
       "source_url": "https://www.ishares.com/us/products/239705/ishares-semiconductor-etf/latest-holdings.csv",
       "holdings_date": null,
-      "retrieved_at": "2026-10-18T21:48:17.797969+00:00",
+      "retrieved_at": "2026-10-19T15:19:48.800704+00:00",
       "holdings": [
         {
           "ticker": "AMD",
-          "weight_pct": 9.42
+          "weight_pct": 9.25
         },
         {
           "ticker": "INTC",
-          "weight_pct": 8.4
+          "weight_pct": 8.26
         },
         {
           "ticker": "NVDA",
-          "weight_pct": 7.76
+          "weight_pct": 7.98
         },
         {
           "ticker": "MU",
-          "weight_pct": 7.66
+          "weight_pct": 7.55
         },
         {
           "ticker": "AVGO",
-          "weight_pct": 7.33
-        },
-        {
-          "ticker": "MRVL",
-          "weight_pct": 4.49
+          "weight_pct": 7.31
         },
         {
           "ticker": "ADI",
-          "weight_pct": 4.4
+          "weight_pct": 4.49
+        },
+        {
+          "ticker": "MRVL",
+          "weight_pct": 4.43
         },
         {
           "ticker": "TXN",
-          "weight_pct": 4.22
+          "weight_pct": 4.36
         },
         {
           "ticker": "QCOM",
-          "weight_pct": 4.13
+          "weight_pct": 4.16
         },
         {
           "ticker": "KLAC",
-          "weight_pct": 3.92
+          "weight_pct": 3.89
         },
         {
           "ticker": "AMAT",
-          "weight_pct": 3.7
+          "weight_pct": 3.68
         },
         {
           "ticker": "LRCX",
-          "weight_pct": 3.63
-        },
-        {
-          "ticker": "MPWR",
-          "weight_pct": 3.23
+          "weight_pct": 3.6
         },
         {
           "ticker": "NXPI",
-          "weight_pct": 3.17
+          "weight_pct": 3.29
+        },
+        {
+          "ticker": "MPWR",
+          "weight_pct": 3.27
         },
         {
           "ticker": "TSM",
-          "weight_pct": 3.07
+          "weight_pct": 3.13
         },
         {
           "ticker": "TER",
-          "weight_pct": 2.9
+          "weight_pct": 2.87
         },
         {
           "ticker": "SKHY",
-          "weight_pct": 2.68
+          "weight_pct": 2.61
         },
         {
           "ticker": "ALAB",
-          "weight_pct": 2.34
+          "weight_pct": 2.31
         },
         {
           "ticker": "MCHP",
-          "weight_pct": 2.16
+          "weight_pct": 2.24
         },
         {
           "ticker": "CRDO",
-          "weight_pct": 1.64
+          "weight_pct": 1.63
         },
         {
           "ticker": "ON",
-          "weight_pct": 1.55
+          "weight_pct": 1.59
         },
         {
           "ticker": "ASML",
-          "weight_pct": 1.47
+          "weight_pct": 1.52
         },
         {
           "ticker": "ENTG",
-          "weight_pct": 1.22
-        },
-        {
-          "ticker": "TSEM",
           "weight_pct": 1.2
         },
         {
+          "ticker": "TSEM",
+          "weight_pct": 1.17
+        },
+        {
           "ticker": "MTSI",
-          "weight_pct": 1.05
+          "weight_pct": 1.06
         },
         {
           "ticker": "ASX",
-          "weight_pct": 0.93
+          "weight_pct": 0.91
         },
         {
           "ticker": "CBRS",
-          "weight_pct": 0.74
+          "weight_pct": 0.7
         },
         {
           "ticker": "UMC",
-          "weight_pct": 0.64
+          "weight_pct": 0.63
         },
         {
           "ticker": "ARM",
-          "weight_pct": 0.46
+          "weight_pct": 0.45
         },
         {
           "ticker": "STM",
-          "weight_pct": 0.4
+          "weight_pct": 0.41
         },
         {
           "ticker": "XTSLA",
-          "weight_pct": 0.16
-        },
-        {
-          "ticker": "WFFUT",
-          "weight_pct": 0.01
+          "weight_pct": 0.06
         }
       ],
-      "count": 32,
-      "total_weight_pct": 100.08
+      "count": 31,
+      "total_weight_pct": 100.01
     }
   },
   "errors": {
