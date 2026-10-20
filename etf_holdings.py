@@ -111,8 +111,53 @@ def parse_csv_bytes(content):
     return []
 
 
+def parse_json_bytes(content):
+    """Parse JSON holdings responses returned by provider download endpoints."""
+    try:
+        obj = json.loads(content.decode("utf-8-sig", errors="replace"))
+    except Exception:
+        return []
+
+    ticker_keys = {"ticker", "symbol", "tickersymbol", "securityticker"}
+    weight_keys = {
+        "weight", "weightpct", "weightpercent", "portfolioweight",
+        "portfolio_percentage", "percentofnetassets", "netassetspercent",
+        "percentageofnetassets", "holdingweight",
+    }
+
+    def key_norm(key):
+        return re.sub(r"[^a-z0-9]", "", str(key).lower())
+
+    def walk(value):
+        if isinstance(value, dict):
+            normalized = {key_norm(k): v for k, v in value.items()}
+            ticker = next((normalized[k] for k in ticker_keys if k in normalized), None)
+            weight = next((normalized[k] for k in weight_keys if k in normalized), None)
+            if ticker is not None and weight is not None:
+                t = ticker_clean(ticker)
+                w = number(weight)
+                if t and w is not None:
+                    yield {"ticker": t, "weight_pct": w}
+            for child in value.values():
+                yield from walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from walk(child)
+
+    rows = list(walk(obj))
+    # Deduplicate nested representations while retaining the last reported weight.
+    dedup = {}
+    for row in rows:
+        dedup[row["ticker"]] = row["weight_pct"]
+    return [{"ticker": t, "weight_pct": w} for t, w in dedup.items()]
+
+
 def parse_download(content, url, content_type=""):
     low = (url + " " + content_type).lower()
+    if "json" in low or content.lstrip().startswith((b"{", b"[")):
+        rows = parse_json_bytes(content)
+        if len(rows) >= 10:
+            return rows
     if "csv" in low or content[:200].decode("utf-8", errors="ignore").lower().find("ticker") >= 0:
         rows = parse_csv_bytes(content)
         if len(rows) >= 10:
@@ -168,7 +213,11 @@ def fetch_smh():
         except Exception as exc:
             print(f"SMH download candidate failed: {url} ({exc})")
     # Last fallback: the page itself sometimes contains an HTML holdings table.
-    for df in pd.read_html(io.StringIO(response.text), header=None):
+    try:
+        tables = pd.read_html(io.StringIO(response.text), header=None)
+    except Exception:
+        tables = []
+    for df in tables:
         rows = records_from_dataframe(df)
         if len(rows) >= 10:
             return rows, VANECK_PAGE
