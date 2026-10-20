@@ -219,6 +219,68 @@ def parse_html_holdings(html):
     return [{"ticker": t, "weight_pct": w} for t, w in dedup.items()]
 
 
+def parse_embedded_holdings(html):
+    """Find holdings in JSON embedded in the official page, including script state."""
+    soup = BeautifulSoup(html, "html.parser")
+    candidates = []
+    for script in soup.find_all("script"):
+        text = script.string or script.get_text(" ", strip=False)
+        if not text:
+            continue
+        text = text.strip()
+        # Try complete JSON script blocks and common HTML-embedded state objects.
+        for candidate in (text,):
+            try:
+                obj = json.loads(candidate)
+            except Exception:
+                obj = None
+            if obj is not None:
+                rows = parse_json_object_holdings(obj)
+                if len(rows) >= 10:
+                    candidates.append(rows)
+        # Extract object-like JSON snippets when the script wraps state in JS.
+        for key in ("holdings", "Holdings", "holdingsData", "HoldingsData", "portfolioHoldings"):
+            for match in re.finditer(r'["\']?' + re.escape(key) + r'["\']?\s*:\s*(\[.*?\])', text, flags=re.I | re.S):
+                raw = match.group(1)
+                try:
+                    obj = json.loads(raw)
+                except Exception:
+                    continue
+                rows = parse_json_object_holdings(obj)
+                if len(rows) >= 10:
+                    candidates.append(rows)
+    if not candidates:
+        return []
+    return max(candidates, key=len)
+
+
+def parse_json_object_holdings(obj):
+    ticker_keys = {"ticker", "symbol", "tickersymbol", "securityticker", "securitysymbol"}
+    weight_keys = {"weight", "weightpct", "weightpercent", "portfolioweight", "portfolio_percentage",
+                   "percentofnetassets", "netassetspercent", "percentageofnetassets", "holdingweight", "weighting"}
+    def kn(k):
+        return re.sub(r"[^a-z0-9]", "", str(k).lower())
+    rows = []
+    def walk(v):
+        if isinstance(v, dict):
+            d = {kn(k): val for k, val in v.items()}
+            t = next((d[k] for k in ticker_keys if k in d), None)
+            w = next((d[k] for k in weight_keys if k in d), None)
+            if t is not None and w is not None:
+                ticker, weight = ticker_clean(t), number(w)
+                if ticker and weight is not None:
+                    rows.append({"ticker": ticker, "weight_pct": weight})
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+    walk(obj)
+    dedup = {}
+    for row in rows:
+        dedup[row["ticker"]] = row["weight_pct"]
+    return [{"ticker": t, "weight_pct": w} for t, w in dedup.items()]
+
 def fetch_smh():
     # VanEck serves the actual holdings table on its holdings route; try it first.
     page_urls = [
@@ -240,6 +302,9 @@ def fetch_smh():
     if last_response is None:
         raise RuntimeError("SMH: unable to fetch official VanEck holdings page")
     response = last_response
+    embedded_rows = parse_embedded_holdings(response.text)
+    if len(embedded_rows) >= 10:
+        return embedded_rows, response.url
     soup = BeautifulSoup(response.text, "html.parser")
     candidates = []
     for tag in soup.find_all(["a", "button"]):
@@ -251,7 +316,7 @@ def fetch_smh():
         if ("holding" in combined or "download" in combined) and any(ext in combined for ext in (".xls", ".xlsx", ".csv", "download", "export")):
             candidates.append((0 if ("xls" in combined or "csv" in combined) else 1, full))
     # The official page can expose the download URL in embedded JSON instead of a normal anchor.
-    for match in re.findall(r"([^\"'<> ]*(?:holding|download|export)[^\"'<> ]*\\.(?:xlsx?|csv)(?:\\?[^\"'<> ]*)?)", response.text, flags=re.I):
+    for match in re.findall(r"([^\"'<> ]*(?:holding|download|export)[^\"'<> ]*\.(?:xlsx?|csv)(?:\?[^\"'<> ]*)?)", response.text, flags=re.I):
         candidates.append((0, requests.compat.urljoin(VANECK_PAGE, match.replace("\\u0026", "&"))))
     seen = set()
     for _, url in sorted(candidates, key=lambda x: x[0]):
