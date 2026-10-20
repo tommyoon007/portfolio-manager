@@ -183,9 +183,63 @@ def parse_download(content, url, content_type=""):
     return []
 
 
+def parse_html_holdings(html):
+    """Extract ticker/weight rows directly from official HTML tables."""
+    soup = BeautifulSoup(html, "html.parser")
+    found = []
+    for table in soup.find_all("table"):
+        rows = table.find_all("tr")
+        header_index = None
+        ticker_index = weight_index = None
+        for i, tr in enumerate(rows[:25]):
+            cells = tr.find_all(["th", "td"])
+            labels = [norm(cell.get_text(" ", strip=True)) for cell in cells]
+            ti, wi = find_columns(labels)
+            if ti is not None and wi is not None:
+                header_index, ticker_index, weight_index = i, ti, wi
+                break
+        if header_index is None:
+            continue
+        table_rows = []
+        for tr in rows[header_index + 1:]:
+            cells = tr.find_all(["th", "td"])
+            if max(ticker_index, weight_index) >= len(cells):
+                continue
+            ticker = ticker_clean(cells[ticker_index].get_text(" ", strip=True))
+            weight = number(cells[weight_index].get_text(" ", strip=True))
+            if ticker and weight is not None:
+                table_rows.append({"ticker": ticker, "weight_pct": weight})
+        if len(table_rows) >= 10:
+            found.extend(table_rows)
+    if not found:
+        return []
+    dedup = {}
+    for row in found:
+        dedup[row["ticker"]] = row["weight_pct"]
+    return [{"ticker": t, "weight_pct": w} for t, w in dedup.items()]
+
+
 def fetch_smh():
-    response = requests.get(VANECK_PAGE, headers=HEADERS, timeout=45)
-    response.raise_for_status()
+    # VanEck serves the actual holdings table on its holdings route; try it first.
+    page_urls = [
+        "https://www.vaneck.com/us/en/investments/semiconductor-etf-smh/holdings/",
+        VANECK_PAGE,
+    ]
+    last_response = None
+    for page_url in page_urls:
+        try:
+            response = requests.get(page_url, headers=HEADERS, timeout=45)
+            response.raise_for_status()
+            last_response = response
+            direct_rows = parse_html_holdings(response.text)
+            if len(direct_rows) >= 10:
+                return direct_rows, response.url
+            break
+        except Exception as exc:
+            print(f"SMH page candidate failed: {page_url} ({exc})")
+    if last_response is None:
+        raise RuntimeError("SMH: unable to fetch official VanEck holdings page")
+    response = last_response
     soup = BeautifulSoup(response.text, "html.parser")
     candidates = []
     for tag in soup.find_all(["a", "button"]):
@@ -212,7 +266,10 @@ def fetch_smh():
                 return rows, r.url
         except Exception as exc:
             print(f"SMH download candidate failed: {url} ({exc})")
-    # Last fallback: the page itself sometimes contains an HTML holdings table.
+    # Last fallback: parse HTML cells directly, then try pandas table extraction.
+    direct_rows = parse_html_holdings(response.text)
+    if len(direct_rows) >= 10:
+        return direct_rows, response.url
     try:
         tables = pd.read_html(io.StringIO(response.text), header=None)
     except Exception:
