@@ -282,57 +282,34 @@ def parse_json_object_holdings(obj):
     return [{"ticker": t, "weight_pct": w} for t, w in dedup.items()]
 
 def fetch_smh():
-    """Fetch SMH holdings from VanEck's official XLSX endpoint first."""
-    # VanEck's current site exposes the daily workbook at this endpoint.
-    # The page URL is retained as a fallback in case the endpoint changes.
-    direct_urls = [
-        "https://www.vaneck.com/us/en/investments/semiconductor-etf-smh/downloads/holdings/",
-        "https://www.vaneck.com/us/en/investments/semiconductor-etf-smh/holdings/",
+    """Fetch SMH holdings from VanEck, preserving session cookies across redirects."""
+    page_urls = [
+        "https://www.vaneck.com/us/en/investments/semiconductor-etf-smh/overview/",
         VANECK_PAGE,
+        "https://www.vaneck.com/us/en/investments/semiconductor-etf-smh/holdings/",
     ]
+    download_url = "https://www.vaneck.com/us/en/investments/semiconductor-etf-smh/downloads/holdings/"
+    session = requests.Session()
+    session.headers.update({
+        **HEADERS,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.vaneck.com/",
+    })
     last_error = None
-    for url in direct_urls:
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=45, allow_redirects=True)
-            r.raise_for_status()
-            content_type = r.headers.get("Content-Type", "")
-            # First try to parse as the XLSX/CSV/JSON workbook response.
-            rows = parse_download(r.content, r.url, content_type)
-            if len(rows) >= 10:
-                print(f"OK SMH source: {r.url} ({len(rows)} parsed rows)")
-                return rows, r.url
 
-            # If the endpoint redirected to an HTML page, parse the page itself.
-            if "html" in content_type.lower() or r.text.lstrip().lower().startswith(("<!doctype html", "<html")):
-                rows = parse_html_holdings(r.text)
-                if len(rows) >= 10:
-                    return rows, r.url
-                rows = parse_embedded_holdings(r.text)
-                if len(rows) >= 10:
-                    return rows, r.url
-                soup = BeautifulSoup(r.text, "html.parser")
-                # Follow download links found on each official page.
-                links = []
-                for tag in soup.find_all(["a", "button"]):
-                    href = tag.get("href") or tag.get("data-href") or tag.get("data-url") or ""
-                    label = norm(" ".join(tag.stripped_strings))
-                    combined = (label + " " + href).lower()
-                    if any(word in combined for word in ("holding", "download", "export")):
-                        if any(ext in combined for ext in (".xls", ".xlsx", ".csv", "download", "export")):
-                            links.append(requests.compat.urljoin(r.url, href))
-                # Some VanEck pages expose workbook URLs in serialized page data.
-                for match in re.findall(r"([^\"'<> ]*(?:holding|download|export)[^\"'<> ]*\.(?:xlsx?|csv)(?:\?[^\"'<> ]*)?)", r.text, flags=re.I):
-                    links.append(requests.compat.urljoin(r.url, match.replace("\\\\u0026", "&")))
-                for link in dict.fromkeys(links):
-                    try:
-                        dl = requests.get(link, headers=HEADERS, timeout=45, allow_redirects=True)
-                        dl.raise_for_status()
-                        rows = parse_download(dl.content, dl.url, dl.headers.get("Content-Type", ""))
-                        if len(rows) >= 10:
-                            return rows, dl.url
-                    except Exception as exc:
-                        print(f"SMH download candidate failed: {link} ({exc})")
-                # pandas HTML table fallback.
+    # Establish the official-site session first; VanEck may use redirect/cookie checks.
+    for url in page_urls:
+        try:
+            r = session.get(url, timeout=45, allow_redirects=True)
+            r.raise_for_status()
+            ctype = r.headers.get("Content-Type", "")
+            print(f"SMH page response: requested={url}; final={r.url}; type={ctype}; bytes={len(r.content)}")
+            if "html" in ctype.lower() or r.text.lstrip().lower().startswith(("<!doctype html", "<html")):
+                for parser in (parse_html_holdings, parse_embedded_holdings):
+                    rows = parser(r.text)
+                    if len(rows) >= 10:
+                        return rows, r.url
                 try:
                     tables = pd.read_html(io.StringIO(r.text), header=None)
                 except Exception:
@@ -341,15 +318,35 @@ def fetch_smh():
                     rows = records_from_dataframe(df)
                     if len(rows) >= 10:
                         return rows, r.url
-            else:
-                print(f"SMH endpoint returned unparsed content: {r.url}; type={content_type}; bytes={len(r.content)}")
         except Exception as exc:
             last_error = exc
-            print(f"SMH source candidate failed: {url} ({exc})")
+            print(f"SMH page candidate failed: {url} ({exc})")
+
+    # Use the same cookie session for the official daily XLSX endpoint.
+    for attempt in range(1, 4):
+        try:
+            dl = session.get(download_url, timeout=45, allow_redirects=True,
+                             headers={"Referer": page_urls[0], "Accept": "*/*"})
+            dl.raise_for_status()
+            ctype = dl.headers.get("Content-Type", "")
+            print(f"SMH download response: requested={download_url}; final={dl.url}; type={ctype}; bytes={len(dl.content)}")
+            rows = parse_download(dl.content, dl.url, ctype)
+            if len(rows) >= 10:
+                print(f"OK SMH source: {dl.url} ({len(rows)} parsed rows)")
+                return rows, dl.url
+            if "html" in ctype.lower() or dl.text.lstrip().lower().startswith(("<!doctype html", "<html")):
+                for parser in (parse_html_holdings, parse_embedded_holdings):
+                    rows = parser(dl.text)
+                    if len(rows) >= 10:
+                        return rows, dl.url
+            print(f"SMH response not parseable on attempt {attempt}; session cookies={len(session.cookies)}")
+        except Exception as exc:
+            last_error = exc
+            print(f"SMH download attempt {attempt} failed: {download_url} ({exc})")
 
     if last_error:
         print(f"SMH last request error: {last_error}")
-    raise RuntimeError("SMH: could not parse official VanEck holdings download/page after trying official XLSX endpoint and page fallbacks")
+    raise RuntimeError("SMH: VanEck page/download response did not contain parseable holdings; see SMH response diagnostics above")
 
 
 def fetch_soxx():
