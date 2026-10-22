@@ -282,68 +282,74 @@ def parse_json_object_holdings(obj):
     return [{"ticker": t, "weight_pct": w} for t, w in dedup.items()]
 
 def fetch_smh():
-    # VanEck serves the actual holdings table on its holdings route; try it first.
-    page_urls = [
+    """Fetch SMH holdings from VanEck's official XLSX endpoint first."""
+    # VanEck's current site exposes the daily workbook at this endpoint.
+    # The page URL is retained as a fallback in case the endpoint changes.
+    direct_urls = [
+        "https://www.vaneck.com/us/en/investments/semiconductor-etf-smh/downloads/holdings/",
         "https://www.vaneck.com/us/en/investments/semiconductor-etf-smh/holdings/",
         VANECK_PAGE,
     ]
-    last_response = None
-    for page_url in page_urls:
+    last_error = None
+    for url in direct_urls:
         try:
-            response = requests.get(page_url, headers=HEADERS, timeout=45)
-            response.raise_for_status()
-            last_response = response
-            direct_rows = parse_html_holdings(response.text)
-            if len(direct_rows) >= 10:
-                return direct_rows, response.url
-            break
-        except Exception as exc:
-            print(f"SMH page candidate failed: {page_url} ({exc})")
-    if last_response is None:
-        raise RuntimeError("SMH: unable to fetch official VanEck holdings page")
-    response = last_response
-    embedded_rows = parse_embedded_holdings(response.text)
-    if len(embedded_rows) >= 10:
-        return embedded_rows, response.url
-    soup = BeautifulSoup(response.text, "html.parser")
-    candidates = []
-    for tag in soup.find_all(["a", "button"]):
-        href = tag.get("href") or tag.get("data-href") or tag.get("data-url") or ""
-        label = norm(" ".join(tag.stripped_strings))
-        full = requests.compat.urljoin(VANECK_PAGE, href)
-        combined = (label + " " + href).lower()
-        # Official page's Download XLS / Get holdings controls.
-        if ("holding" in combined or "download" in combined) and any(ext in combined for ext in (".xls", ".xlsx", ".csv", "download", "export")):
-            candidates.append((0 if ("xls" in combined or "csv" in combined) else 1, full))
-    # The official page can expose the download URL in embedded JSON instead of a normal anchor.
-    for match in re.findall(r"([^\"'<> ]*(?:holding|download|export)[^\"'<> ]*\.(?:xlsx?|csv)(?:\?[^\"'<> ]*)?)", response.text, flags=re.I):
-        candidates.append((0, requests.compat.urljoin(VANECK_PAGE, match.replace("\\u0026", "&"))))
-    seen = set()
-    for _, url in sorted(candidates, key=lambda x: x[0]):
-        if not url.startswith("https://") or url in seen:
-            continue
-        seen.add(url)
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=45)
+            r = requests.get(url, headers=HEADERS, timeout=45, allow_redirects=True)
             r.raise_for_status()
-            rows = parse_download(r.content, r.url, r.headers.get("Content-Type", ""))
+            content_type = r.headers.get("Content-Type", "")
+            # First try to parse as the XLSX/CSV/JSON workbook response.
+            rows = parse_download(r.content, r.url, content_type)
             if len(rows) >= 10:
+                print(f"OK SMH source: {r.url} ({len(rows)} parsed rows)")
                 return rows, r.url
+
+            # If the endpoint redirected to an HTML page, parse the page itself.
+            if "html" in content_type.lower() or r.text.lstrip().lower().startswith(("<!doctype html", "<html")):
+                rows = parse_html_holdings(r.text)
+                if len(rows) >= 10:
+                    return rows, r.url
+                rows = parse_embedded_holdings(r.text)
+                if len(rows) >= 10:
+                    return rows, r.url
+                soup = BeautifulSoup(r.text, "html.parser")
+                # Follow download links found on each official page.
+                links = []
+                for tag in soup.find_all(["a", "button"]):
+                    href = tag.get("href") or tag.get("data-href") or tag.get("data-url") or ""
+                    label = norm(" ".join(tag.stripped_strings))
+                    combined = (label + " " + href).lower()
+                    if any(word in combined for word in ("holding", "download", "export")):
+                        if any(ext in combined for ext in (".xls", ".xlsx", ".csv", "download", "export")):
+                            links.append(requests.compat.urljoin(r.url, href))
+                # Some VanEck pages expose workbook URLs in serialized page data.
+                for match in re.findall(r"([^\"'<> ]*(?:holding|download|export)[^\"'<> ]*\.(?:xlsx?|csv)(?:\?[^\"'<> ]*)?)", r.text, flags=re.I):
+                    links.append(requests.compat.urljoin(r.url, match.replace("\\\\u0026", "&")))
+                for link in dict.fromkeys(links):
+                    try:
+                        dl = requests.get(link, headers=HEADERS, timeout=45, allow_redirects=True)
+                        dl.raise_for_status()
+                        rows = parse_download(dl.content, dl.url, dl.headers.get("Content-Type", ""))
+                        if len(rows) >= 10:
+                            return rows, dl.url
+                    except Exception as exc:
+                        print(f"SMH download candidate failed: {link} ({exc})")
+                # pandas HTML table fallback.
+                try:
+                    tables = pd.read_html(io.StringIO(r.text), header=None)
+                except Exception:
+                    tables = []
+                for df in tables:
+                    rows = records_from_dataframe(df)
+                    if len(rows) >= 10:
+                        return rows, r.url
+            else:
+                print(f"SMH endpoint returned unparsed content: {r.url}; type={content_type}; bytes={len(r.content)}")
         except Exception as exc:
-            print(f"SMH download candidate failed: {url} ({exc})")
-    # Last fallback: parse HTML cells directly, then try pandas table extraction.
-    direct_rows = parse_html_holdings(response.text)
-    if len(direct_rows) >= 10:
-        return direct_rows, response.url
-    try:
-        tables = pd.read_html(io.StringIO(response.text), header=None)
-    except Exception:
-        tables = []
-    for df in tables:
-        rows = records_from_dataframe(df)
-        if len(rows) >= 10:
-            return rows, VANECK_PAGE
-    raise RuntimeError(f"SMH: could not parse official VanEck holdings download/page (HTTP {response.status_code}, {len(response.text)} chars; candidates={len(seen)})")
+            last_error = exc
+            print(f"SMH source candidate failed: {url} ({exc})")
+
+    if last_error:
+        print(f"SMH last request error: {last_error}")
+    raise RuntimeError("SMH: could not parse official VanEck holdings download/page after trying official XLSX endpoint and page fallbacks")
 
 
 def fetch_soxx():
