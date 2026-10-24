@@ -1211,6 +1211,7 @@
     <div class="build-version">Portfolio Manager · SEC Financials</div>
 
     <div id="lastUpdated" class="last-updated">최종 업데이트: 아직 없음</div>
+    <div id="etfHoldingsAsOf" class="last-updated">SMH·SOXX 편입종목 기준일: 불러오는 중…</div>
 
   </header>
 
@@ -1857,6 +1858,8 @@
     renderLastUpdated();
 
     renderPortfolio();
+
+    loadEtfHoldings().then(renderEtfHoldingsAsOf);
 
   }
 
@@ -4883,6 +4886,25 @@ function recommendationDetailsHtml(
       return etfHoldingsData;
     })();
     return etfHoldingsLoadPromise;
+  }
+
+  function renderEtfHoldingsAsOf() {
+    const element = document.getElementById("etfHoldingsAsOf");
+    if (!element) return;
+
+    const formatDate = (value) => {
+      if (!value) return "기준일 미확인";
+      const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      return match ? `${match[1]}-${match[2]}-${match[3]}` : String(value);
+    };
+
+    const smh = getEtfHoldingsRecord("SMH");
+    const soxx = getEtfHoldingsRecord("SOXX");
+    if (!smh && !soxx) {
+      element.textContent = "SMH·SOXX 편입종목 기준일: 데이터를 불러오지 못했습니다.";
+      return;
+    }
+    element.textContent = `ETF 편입종목 기준일 — SMH: ${formatDate(smh && smh.holdings_date)} · SOXX: ${formatDate(soxx && soxx.holdings_date)}`;
   }
 
   function getEtfHoldingsRecord(ticker) {
