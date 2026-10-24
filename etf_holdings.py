@@ -32,37 +32,49 @@ def norm(value):
 
 
 
-def parse_holdings_date(text):
-    """Extract a holdings-as-of date from official provider text; return YYYY-MM-DD or None."""
+def parse_holdings_date(text, allow_fallback=True):
+    """Extract a holdings-as-of date; return YYYY-MM-DD or None."""
     if not text:
         return None
-    # Prefer explicit holdings-date labels; do not accidentally use unrelated fund-statistics dates.
+
+    # Only trust dates explicitly tied to the holdings label first.
+    date_pattern = (
+        r"([A-Za-z]+\s+\d{1,2},?\s+\d{4}|"
+        r"\d{1,2}[/-]\d{1,2}[/-]\d{4}|"
+        r"\d{4}-\d{2}-\d{2})"
+    )
     patterns = [
-        r"(?:daily\s+)?holdings(?:\s*\([^)]*\))?.{0,50}?as\s+of\s*[:,-]?\s*([A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{4}-\d{2}-\d{2})",
-        r"as\s+of\s*[:,-]?\s*([A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{4}-\d{2}-\d{2}).{0,40}?holdings",
+        r"(?:daily\s+)?holdings(?:\s*\([^)]*\))?.{0,50}?as\s+of\s*[:,-]?\s*" + date_pattern,
+        r"as\s+of\s*[:,-]?\s*" + date_pattern + r".{0,40}?holdings",
     ]
-    for pattern in patterns:
-        m = re.search(pattern, str(text), flags=re.I | re.S)
-        if not m:
-            continue
-        raw = re.sub(r"\s+", " ", m.group(1)).strip().replace(",", "")
+
+    def convert_date(raw):
+        raw = re.sub(r"\s+", " ", raw).strip().replace(",", "")
         for fmt in ("%m/%d/%Y", "%m-%d-%Y", "%Y-%m-%d", "%B %d %Y", "%b %d %Y"):
             try:
                 return datetime.strptime(raw, fmt).date().isoformat()
             except ValueError:
                 pass
-    # iShares CSV metadata often puts the holdings label and date on the same line.
-    for line in str(text).splitlines()[:80]:
-        if "holding" not in line.lower():
-            continue
-        m = re.search(r"([A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{4}-\d{2}-\d{2})", line, flags=re.I)
-        if m:
-            raw = re.sub(r"\s+", " ", m.group(1)).strip().replace(",", "")
-            for fmt in ("%m/%d/%Y", "%m-%d-%Y", "%Y-%m-%d", "%B %d %Y", "%b %d %Y"):
-                try:
-                    return datetime.strptime(raw, fmt).date().isoformat()
-                except ValueError:
-                    pass
+        return None
+
+    for pattern in patterns:
+        match = re.search(pattern, str(text), flags=re.I | re.S)
+        if match:
+            parsed = convert_date(match.group(1))
+            if parsed:
+                return parsed
+
+    # iShares CSV metadata fallback only. Do not use this for VanEck pages/files,
+    # where an unrelated historical date may be mistaken for the holdings date.
+    if allow_fallback:
+        for line in str(text).splitlines()[:80]:
+            if "holding" not in line.lower():
+                continue
+            match = re.search(date_pattern, line, flags=re.I)
+            if match:
+                parsed = convert_date(match.group(1))
+                if parsed:
+                    return parsed
     return None
 
 
@@ -342,7 +354,7 @@ def fetch_smh():
             ctype = r.headers.get("Content-Type", "")
             print(f"SMH page response: requested={url}; final={r.url}; type={ctype}; bytes={len(r.content)}")
             if "html" in ctype.lower() or r.text.lstrip().lower().startswith(("<!doctype html", "<html")):
-                found_date = parse_holdings_date(r.text)
+                found_date = parse_holdings_date(r.text, allow_fallback=False)
                 if found_date:
                     page_holdings_date = found_date
                 for parser in (parse_html_holdings, parse_embedded_holdings):
@@ -373,12 +385,12 @@ def fetch_smh():
             if len(rows) >= 10:
                 print(f"OK SMH source: {dl.url} ({len(rows)} parsed rows)")
                 body = dl.content.decode("utf-8-sig", errors="replace") if not ("spreadsheet" in ctype.lower() or "excel" in ctype.lower()) else ""
-                return rows, dl.url, parse_holdings_date(body) or page_holdings_date
+                return rows, dl.url, parse_holdings_date(body, allow_fallback=False) or page_holdings_date
             if "html" in ctype.lower() or dl.text.lstrip().lower().startswith(("<!doctype html", "<html")):
                 for parser in (parse_html_holdings, parse_embedded_holdings):
                     rows = parser(dl.text)
                     if len(rows) >= 10:
-                        return rows, dl.url, parse_holdings_date(dl.text) or page_holdings_date
+                        return rows, dl.url, parse_holdings_date(dl.text, allow_fallback=False) or page_holdings_date
             print(f"SMH response not parseable on attempt {attempt}; session cookies={len(session.cookies)}")
         except Exception as exc:
             last_error = exc
