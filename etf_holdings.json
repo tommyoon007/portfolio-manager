@@ -1,11 +1,11 @@
 {
-  "updated_at": "2026-10-24T09:04:02.827703+00:00",
+  "updated_at": "2026-10-24T09:17:27.184423+00:00",
   "source": "Official VanEck/iShares holdings downloads",
   "data": {
     "SMH": {
       "source_url": "https://www.vaneck.com/us/en/investments/semiconductor-etf-smh/downloads/holdings/",
       "holdings_date": null,
-      "retrieved_at": "2026-10-24T09:04:02.118448+00:00",
+      "retrieved_at": "2026-10-24T09:17:26.051961+00:00",
       "holdings": [
         {
           "ticker": "NVDA",
@@ -114,7 +114,7 @@
     "SOXX": {
       "source_url": "https://www.ishares.com/us/products/239705/ishares-semiconductor-etf/latest-holdings.csv",
       "holdings_date": "2026-10-22",
-      "retrieved_at": "2026-10-24T09:04:02.827686+00:00",
+      "retrieved_at": "2026-10-24T09:17:27.184404+00:00",
       "holdings": [
         {
           "ticker": "AMD",
