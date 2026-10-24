@@ -215,6 +215,51 @@ def parse_json_bytes(content):
     return [{"ticker": t, "weight_pct": w} for t, w in dedup.items()]
 
 
+def parse_excel_holdings_date(content):
+    """Read the holdings-as-of date from title/metadata rows in VanEck XLS/XLSX files."""
+    try:
+        sheets = pd.read_excel(io.BytesIO(content), sheet_name=None, header=None, dtype=object)
+    except Exception:
+        return None
+
+    date_pattern = re.compile(
+        r"([A-Za-z]+\s+\d{1,2},?\s+\d{4}|"
+        r"\d{1,2}[/-]\d{1,2}[/-]\d{4}|"
+        r"\d{4}-\d{2}-\d{2})",
+        re.I,
+    )
+
+    def convert(raw):
+        raw = re.sub(r"\s+", " ", str(raw)).strip().replace(",", "")
+        for fmt in ("%m/%d/%Y", "%m-%d-%Y", "%Y-%m-%d", "%B %d %Y", "%b %d %Y"):
+            try:
+                return datetime.strptime(raw, fmt).date().isoformat()
+            except ValueError:
+                pass
+        return None
+
+    # Only inspect the title/metadata area and only accept dates near a holdings label.
+    for sheet_name, df in sheets.items():
+        rows = df.fillna("").astype(str).values.tolist()
+        for i, row in enumerate(rows[:20]):
+            for j, cell in enumerate(row[:12]):
+                if not cell.strip():
+                    continue
+                nearby = " ".join(
+                    str(x) for rr in rows[max(0, i - 2):min(len(rows), i + 3)]
+                    for x in rr[max(0, j - 2):min(len(rr), j + 4)]
+                )
+                context = (cell + " " + nearby).lower()
+                if not any(k in context for k in ("holding", "portfolio date", "as of date", "daily holdings")):
+                    continue
+                match = date_pattern.search(nearby)
+                if match:
+                    parsed = convert(match.group(1))
+                    if parsed:
+                        return parsed
+    return None
+
+
 def parse_download(content, url, content_type=""):
     low = (url + " " + content_type).lower()
     if "json" in low or content.lstrip().startswith((b"{", b"[")):
@@ -400,8 +445,11 @@ def fetch_smh():
             rows = parse_download(dl.content, dl.url, ctype)
             if len(rows) >= 10:
                 print(f"OK SMH source: {dl.url} ({len(rows)} parsed rows)")
-                body = dl.content.decode("utf-8-sig", errors="replace") if not ("spreadsheet" in ctype.lower() or "excel" in ctype.lower()) else ""
-                return rows, dl.url, parse_holdings_date(body, allow_fallback=False) or page_holdings_date
+                is_spreadsheet = "spreadsheet" in ctype.lower() or "excel" in ctype.lower() or dl.content[:2] == b"PK"
+                body = "" if is_spreadsheet else dl.content.decode("utf-8-sig", errors="replace")
+                download_date = parse_excel_holdings_date(dl.content) if is_spreadsheet else None
+                download_date = download_date or parse_holdings_date(body, allow_fallback=False)
+                return rows, dl.url, download_date or page_holdings_date
             if "html" in ctype.lower() or dl.text.lstrip().lower().startswith(("<!doctype html", "<html")):
                 for parser in (parse_html_holdings, parse_embedded_holdings):
                     rows = parser(dl.text)
