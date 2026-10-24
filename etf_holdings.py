@@ -31,6 +31,41 @@ def norm(value):
     return re.sub(r"\s+", " ", str(value or "").replace("\xa0", " ")).strip().lower()
 
 
+
+def parse_holdings_date(text):
+    """Extract a holdings-as-of date from official provider text; return YYYY-MM-DD or None."""
+    if not text:
+        return None
+    # Prefer explicit holdings-date labels; do not accidentally use unrelated fund-statistics dates.
+    patterns = [
+        r"(?:daily\s+)?holdings(?:\s*\([^)]*\))?.{0,50}?as\s+of\s*[:,-]?\s*([A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{4}-\d{2}-\d{2})",
+        r"as\s+of\s*[:,-]?\s*([A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{4}-\d{2}-\d{2}).{0,40}?holdings",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, str(text), flags=re.I | re.S)
+        if not m:
+            continue
+        raw = re.sub(r"\s+", " ", m.group(1)).strip().replace(",", "")
+        for fmt in ("%m/%d/%Y", "%m-%d-%Y", "%Y-%m-%d", "%B %d %Y", "%b %d %Y"):
+            try:
+                return datetime.strptime(raw, fmt).date().isoformat()
+            except ValueError:
+                pass
+    # iShares CSV metadata often puts the holdings label and date on the same line.
+    for line in str(text).splitlines()[:80]:
+        if "holding" not in line.lower():
+            continue
+        m = re.search(r"([A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{4}-\d{2}-\d{2})", line, flags=re.I)
+        if m:
+            raw = re.sub(r"\s+", " ", m.group(1)).strip().replace(",", "")
+            for fmt in ("%m/%d/%Y", "%m-%d-%Y", "%Y-%m-%d", "%B %d %Y", "%b %d %Y"):
+                try:
+                    return datetime.strptime(raw, fmt).date().isoformat()
+                except ValueError:
+                    pass
+    return None
+
+
 def ticker_clean(value):
     s = str(value or "").strip().upper()
     if not s or s in {"-USD CASH-", "USD CASH", "CASH", "OTHER", "--", "N/A", "NAN"}:
@@ -297,6 +332,7 @@ def fetch_smh():
         "Referer": "https://www.vaneck.com/",
     })
     last_error = None
+    page_holdings_date = None
 
     # Establish the official-site session first; VanEck may use redirect/cookie checks.
     for url in page_urls:
@@ -306,10 +342,13 @@ def fetch_smh():
             ctype = r.headers.get("Content-Type", "")
             print(f"SMH page response: requested={url}; final={r.url}; type={ctype}; bytes={len(r.content)}")
             if "html" in ctype.lower() or r.text.lstrip().lower().startswith(("<!doctype html", "<html")):
+                found_date = parse_holdings_date(r.text)
+                if found_date:
+                    page_holdings_date = found_date
                 for parser in (parse_html_holdings, parse_embedded_holdings):
                     rows = parser(r.text)
                     if len(rows) >= 10:
-                        return rows, r.url
+                        return rows, r.url, found_date or page_holdings_date
                 try:
                     tables = pd.read_html(io.StringIO(r.text), header=None)
                 except Exception:
@@ -317,7 +356,7 @@ def fetch_smh():
                 for df in tables:
                     rows = records_from_dataframe(df)
                     if len(rows) >= 10:
-                        return rows, r.url
+                        return rows, r.url, found_date or page_holdings_date
         except Exception as exc:
             last_error = exc
             print(f"SMH page candidate failed: {url} ({exc})")
@@ -333,12 +372,13 @@ def fetch_smh():
             rows = parse_download(dl.content, dl.url, ctype)
             if len(rows) >= 10:
                 print(f"OK SMH source: {dl.url} ({len(rows)} parsed rows)")
-                return rows, dl.url
+                body = dl.content.decode("utf-8-sig", errors="replace") if not ("spreadsheet" in ctype.lower() or "excel" in ctype.lower()) else ""
+                return rows, dl.url, parse_holdings_date(body) or page_holdings_date
             if "html" in ctype.lower() or dl.text.lstrip().lower().startswith(("<!doctype html", "<html")):
                 for parser in (parse_html_holdings, parse_embedded_holdings):
                     rows = parser(dl.text)
                     if len(rows) >= 10:
-                        return rows, dl.url
+                        return rows, dl.url, parse_holdings_date(dl.text) or page_holdings_date
             print(f"SMH response not parseable on attempt {attempt}; session cookies={len(session.cookies)}")
         except Exception as exc:
             last_error = exc
@@ -352,12 +392,15 @@ def fetch_smh():
 def fetch_soxx():
     response = requests.get(ISHARES_CSV, headers=HEADERS, timeout=45)
     response.raise_for_status()
+    response_text = response.content.decode("utf-8-sig", errors="replace")
+    holdings_date = parse_holdings_date(response_text)
     rows = parse_download(response.content, response.url, response.headers.get("Content-Type", ""))
     if len(rows) < 10:
         # Fallback: find official CSV download link on the official iShares page.
         page = requests.get("https://www.ishares.com/us/products/239705/ishares-phlx-semiconductor-etf", headers=HEADERS, timeout=45)
         page.raise_for_status()
         soup = BeautifulSoup(page.text, "html.parser")
+        holdings_date = holdings_date or parse_holdings_date(page.get_text(" ", strip=True))
         links = []
         for tag in soup.find_all(["a", "button"]):
             href = tag.get("href") or tag.get("data-href") or tag.get("data-url") or ""
@@ -370,11 +413,12 @@ def fetch_soxx():
                 r.raise_for_status()
                 rows = parse_download(r.content, r.url, r.headers.get("Content-Type", ""))
                 if len(rows) >= 10:
-                    return rows, r.url
+                    body = r.content.decode("utf-8-sig", errors="replace")
+                    return rows, r.url, parse_holdings_date(body) or holdings_date
             except Exception as exc:
                 print(f"SOXX CSV candidate failed: {url} ({exc})")
         raise RuntimeError(f"SOXX: official iShares CSV did not parse (HTTP {response.status_code}, {len(response.content)} bytes)")
-    return rows, response.url
+    return rows, response.url, holdings_date
 
 
 def validate_rows(ticker, rows):
@@ -399,17 +443,19 @@ def main():
             old = {}
     for ticker, fetcher in fetchers.items():
         try:
-            rows, source_url = fetcher()
+            rows, source_url, holdings_date = fetcher()
             clean, total = validate_rows(ticker, rows)
             result[ticker] = {
                 "source_url": source_url,
-                "holdings_date": None,
+                "holdings_date": holdings_date,
                 "retrieved_at": datetime.now(timezone.utc).isoformat(),
                 "holdings": clean,
                 "count": len(clean),
                 "total_weight_pct": round(total, 4),
             }
-            print(f"OK {ticker}: {len(clean)} holdings, total weight {total:.2f}%")
+            print(f"OK {ticker}: {len(clean)} holdings, total weight {total:.2f}%, holdings_date={holdings_date}")
+            if not holdings_date:
+                print(f"WARNING {ticker}: official holdings date was not found in the downloaded metadata.")
         except Exception as exc:
             errors[ticker] = str(exc)
             print(f"FAIL {ticker}: {exc}")
