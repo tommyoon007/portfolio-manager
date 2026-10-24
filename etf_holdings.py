@@ -37,19 +37,15 @@ def parse_holdings_date(text, allow_fallback=True):
     if not text:
         return None
 
-    # Only trust dates explicitly tied to the holdings label first.
+    source = str(text).replace("\\u002F", "/").replace("\\/", "/")
     date_pattern = (
         r"([A-Za-z]+\s+\d{1,2},?\s+\d{4}|"
         r"\d{1,2}[/-]\d{1,2}[/-]\d{4}|"
         r"\d{4}-\d{2}-\d{2})"
     )
-    patterns = [
-        r"(?:daily\s+)?holdings(?:\s*\([^)]*\))?.{0,50}?as\s+of\s*[:,-]?\s*" + date_pattern,
-        r"as\s+of\s*[:,-]?\s*" + date_pattern + r".{0,40}?holdings",
-    ]
 
     def convert_date(raw):
-        raw = re.sub(r"\s+", " ", raw).strip().replace(",", "")
+        raw = re.sub(r"\s+", " ", str(raw)).strip().replace(",", "")
         for fmt in ("%m/%d/%Y", "%m-%d-%Y", "%Y-%m-%d", "%B %d %Y", "%b %d %Y"):
             try:
                 return datetime.strptime(raw, fmt).date().isoformat()
@@ -57,17 +53,37 @@ def parse_holdings_date(text, allow_fallback=True):
                 pass
         return None
 
+    # First: explicit date labels commonly used by ETF providers.
+    patterns = [
+        r"(?:daily\s+)?holdings(?:\s*\([^)]*\))?.{0,100}?as\s+of\s*[:,-]?\s*" + date_pattern,
+        r"as\s+of\s*[:,-]?\s*" + date_pattern + r".{0,100}?(?:daily\s+)?holdings",
+        r"portfolio\s+holdings.{0,100}?as\s+of\s*[:,-]?\s*" + date_pattern,
+        r"holdings\s+(?:date|asofdate|as_of_date)\s*[:=]\s*[\"']?" + date_pattern,
+        r"(?:holdingsDate|holdings_date|asOfDate|as_of_date|portfolioDate|portfolio_date)\s*[\"']?\s*[:=]\s*[\"']?" + date_pattern,
+    ]
     for pattern in patterns:
-        match = re.search(pattern, str(text), flags=re.I | re.S)
+        match = re.search(pattern, source, flags=re.I | re.S)
         if match:
             parsed = convert_date(match.group(1))
             if parsed:
                 return parsed
 
-    # iShares CSV metadata fallback only. Do not use this for VanEck pages/files,
-    # where an unrelated historical date may be mistaken for the holdings date.
+    # VanEck pages may embed the latest holdings date in JSON state. Only accept
+    # a date when its nearby key/context explicitly refers to holdings/portfolio.
+    for match in re.finditer(date_pattern, source, flags=re.I):
+        raw_date = match.group(1)
+        before = source[max(0, match.start() - 180):match.start()].lower()
+        after = source[match.end():min(len(source), match.end() + 100)].lower()
+        context = before + " " + after
+        if any(key in context for key in ("holdingsdate", "holdings_date", "holdings date", "asofdate", "as_of_date", "portfolio date", "portfolio_date")):
+            parsed = convert_date(raw_date)
+            if parsed:
+                return parsed
+
+    # iShares CSV metadata fallback only. Do not use generic dates for VanEck,
+    # where unrelated historical dates can be mistaken for the holdings date.
     if allow_fallback:
-        for line in str(text).splitlines()[:80]:
+        for line in source.splitlines()[:80]:
             if "holding" not in line.lower():
                 continue
             match = re.search(date_pattern, line, flags=re.I)
