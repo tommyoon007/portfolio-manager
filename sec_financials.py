@@ -118,9 +118,17 @@ def quarter_values(arr):
 
 def ttm_from_quarters(arr):
     q = quarter_values(arr)
-    if len(q) >= 4:
-        return sum(x['val'] for x in q[-4:])
-    return None
+    if len(q) < 4:
+        return None
+    last4 = q[-4:]
+    # Require four distinct quarter ends and roughly quarterly spacing.
+    ends = [datetime.fromisoformat(x['end']) for x in last4]
+    if len({x['end'] for x in last4}) != 4:
+        return None
+    gaps = [(ends[i] - ends[i - 1]).days for i in range(1, 4)]
+    if not all(70 <= gap <= 120 for gap in gaps):
+        return None
+    return sum(x['val'] for x in last4)
 
 
 def ttm_or_annual(arr):
@@ -144,9 +152,7 @@ def latest_q_growth(arr):
     if len(q) < 5:
         return None
     a, b = q[-1]['val'], q[-5]['val']
-    if b == 0:
-        return None
-    return (a / b - 1) * 100
+    return plausible_growth(a, b)
 
 
 def fact_latest(arr):
@@ -175,6 +181,26 @@ def arr_for(facts_all, taxonomy_tags, unit='USD'):
             if arr:
                 return arr
     return []
+
+
+def plausible_ratio(numerator, denominator, lower=-100.0, upper=100.0):
+    """Return a percentage only when the denominator is positive and the ratio is plausible."""
+    if numerator is None or denominator is None or denominator <= 0:
+        return None
+    value = numerator / denominator * 100.0
+    if not math.isfinite(value) or value < lower or value > upper:
+        return None
+    return value
+
+
+def plausible_growth(current, prior, lower=-95.0, upper=500.0):
+    """Reject growth rates that are mathematically possible but too unstable for ranking."""
+    if current is None or prior is None or prior <= 0:
+        return None
+    value = (current / prior - 1.0) * 100.0
+    if not math.isfinite(value) or value < lower or value > upper:
+        return None
+    return value
 
 
 def build_company(ticker, cik, payload):
@@ -262,15 +288,31 @@ def build_company(ticker, cik, payload):
     # Do not copy basic shares into diluted shares; those are not the same metric.
     diluted_shares = None
 
+    # Cross-field consistency gate. A ratio outside this range usually signals mismatched
+    # periods, a wrong XBRL concept, or a reporting anomaly. Do not guess which field is right.
+    if revenue_ttm is not None and revenue_ttm > 0 and opinc_ttm is not None:
+        raw_margin = opinc_ttm / revenue_ttm * 100.0
+        if not math.isfinite(raw_margin) or raw_margin < -100.0 or raw_margin > 100.0:
+            print(f'WARNING {ticker}: inconsistent operating income/revenue ratio ({raw_margin:.1f}%). Suppressing affected metrics.')
+            revenue_ttm = None
+            opinc_ttm = None
+            fcf = None if ocf_ttm is None or capex_ttm is None else fcf
+            ebitda = None
+    if ni_ttm is not None and revenue_ttm is not None and revenue_ttm > 0:
+        net_margin = ni_ttm / revenue_ttm * 100.0
+        if not math.isfinite(net_margin) or net_margin < -100.0 or net_margin > 100.0:
+            print(f'WARNING {ticker}: inconsistent net income/revenue ratio ({net_margin:.1f}%). Suppressing net income.')
+            ni_ttm = None
+
     return {
         'RevenueTTM': revenue_ttm,
         'QuarterlyRevenueGrowthYOY': latest_q_growth(revenue_arr),
         'QuarterlyEarningsGrowthYOY': latest_q_growth(ni_arr),
         'OperatingIncomeTTM': opinc_ttm,
         'NetIncomeTTM': ni_ttm,
-        'OperatingMarginTTM': (opinc_ttm / revenue_ttm * 100) if opinc_ttm is not None and revenue_ttm not in (None, 0) else None,
-        'ReturnOnEquityTTM': (ni_ttm / equity * 100) if ni_ttm is not None and equity not in (None, 0) else None,
-        'DebtToEquity': (debt / equity * 100) if debt is not None and equity not in (None, 0) else None,
+        'OperatingMarginTTM': plausible_ratio(opinc_ttm, revenue_ttm, -100.0, 100.0),
+        'ReturnOnEquityTTM': plausible_ratio(ni_ttm, equity, -200.0, 200.0),
+        'DebtToEquity': plausible_ratio(debt, equity, 0.0, 2000.0),
         'CurrentRatio': (ca / cl) if ca is not None and cl not in (None, 0) else None,
         'OperatingCashflow': ocf_ttm,
         'FreeCashFlowTTM': fcf,
@@ -297,20 +339,6 @@ def main():
     tickers = json.loads(TICKERS_FILE.read_text(encoding='utf-8'))
     if not isinstance(tickers, list):
         raise RuntimeError('sec_tickers.json must contain a JSON array of ticker symbols.')
-
-    # Include current underlying holdings from the official SMH/SOXX issuer datasets.
-    holdings_file = Path('etf_holdings.json')
-    if holdings_file.exists():
-        try:
-            holdings_payload = json.loads(holdings_file.read_text(encoding='utf-8'))
-            for fund in holdings_payload.get('data', {}).values():
-                for holding in fund.get('holdings', []):
-                    symbol = str(holding.get('ticker', '')).upper().strip()
-                    if symbol and symbol not in tickers:
-                        tickers.append(symbol)
-            print(f'Included underlying ETF holdings in SEC universe; total requested symbols: {len(tickers)}')
-        except Exception as exc:
-            print(f'WARNING: could not merge etf_holdings.json into SEC ticker list: {exc}')
 
     # Build ticker -> CIK mapping automatically from the SEC's official file.
     # This removes the need to manually create sec_ticker_to_cik.json.
