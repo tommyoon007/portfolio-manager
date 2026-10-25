@@ -3897,7 +3897,7 @@ function recommendationDetailsHtml(
 
             <div class="holding-extra">
               <span>${priceLabel} ${money(price)}</span>
-              <span>${market.priceSource === "twelvedata" ? "조회시각" : "기준일"} ${market.sourceDate || "-"}</span>
+              <span>${["SMH", "SOXX"].includes(String(item.ticker || "").toUpperCase()) ? "편입종목 기준일" : (market.priceSource === "twelvedata" ? "조회시각" : "기준일")} ${["SMH", "SOXX"].includes(String(item.ticker || "").toUpperCase()) ? ((getEtfHoldingsRecord(item.ticker) || {}).holdings_date || "기준일 미확인") : (market.sourceDate || "-")}</span>
               <span>평균 ${money(item.avgPrice)}</span>
               <span>수량 ${numberFormat(item.quantity)}</span>
               <span>목표금액 ${money(targetValue)}</span>
