@@ -5308,27 +5308,14 @@ function recommendationDetailsHtml(
      숫자 변환
   ========================================================= */
 
-  function safeNumber(
-    value
-  ) {
-
-    const number =
-      Number(value);
-
-
-    if (
-      Number.isFinite(
-        number
-      )
-    ) {
-
-      return number;
-
-    }
-
-
-    return null;
-
+  function safeNumber(value) {
+    // Empty/missing API values must never silently become numeric zero.
+    // Number(null), Number(""), and Number("   ") all return 0 in JavaScript.
+    if (value === null || value === undefined) return null;
+    if (typeof value === "string" && value.trim() === "") return null;
+    if (typeof value === "boolean") return null;
+    const number = typeof value === "number" ? value : Number(String(value).replace(/,/g, "").trim());
+    return Number.isFinite(number) ? number : null;
   }
 
 
@@ -5416,16 +5403,14 @@ function recommendationDetailsHtml(
   }
 
   function componentScore(parts, maxPoints) {
-    const available = parts.filter(part => part.score !== null);
-    if (!available.length) {
-      return { score: 0, coverage: 0 };
-    }
+    const available = parts.filter(part => part && Number.isFinite(part.score));
+    if (!available.length || !parts.length) return { score: 0, coverage: 0 };
     const avg = available.reduce((sum, part) => sum + part.score, 0) / available.length;
     const coverage = available.length / parts.length;
-    // 한 지표만 있을 때도 무리하게 100% 신뢰하지 않도록 가벼운 감점만 적용합니다.
-    const coverageFactor = 0.80 + 0.20 * coverage;
+    // Coverage is applied proportionally: one valid metric out of four cannot
+    // earn almost the full category score simply because the other metrics are missing.
     return {
-      score: clamp(avg * maxPoints * coverageFactor, 0, maxPoints),
+      score: clamp(avg * maxPoints * coverage, 0, maxPoints),
       coverage
     };
   }
@@ -5656,7 +5641,8 @@ function recommendationDetailsHtml(
   }
 
   function riskScore(data) {
-    const beta = safeNumber(data["Beta"]);
+    const rawBeta = safeNumber(data["Beta"]);
+    const beta = rawBeta !== null && rawBeta > 0 && rawBeta <= 5 ? rawBeta : null;
     const netDebtToEbitda = getNetDebtToEbitda(data);
     const interestCoverage = getInterestCoverage(data);
     const dilutionGap = getDilutionGap(data);
@@ -5721,7 +5707,7 @@ function recommendationDetailsHtml(
       ["PEG", hasNumber(["PEGRatio"])],
       ["주가/매출(PSR)", hasNumber(["PriceToSalesRatioTTM"])],
       ["EV/EBITDA", hasNumber(["EVToEBITDA"])],
-      ["베타", hasNumber(["Beta"])]
+      ["베타", (() => { const v = safeNumber(data["Beta"]); return v !== null && v > 0 && v <= 5; })()]
     ];
     const summarize = checks => {
       const available = checks.filter(x => x[1]).length;
@@ -5740,7 +5726,7 @@ function recommendationDetailsHtml(
   }
 
   /* =========================================================
-     추천 점수 엔진 v9 — SEC + 캐시 병합 및 보유종목 상대평가
+     추천 점수 엔진 v10 — 결측치 검증, 지표 커버리지 보정 및 상대평가
 
      v7 구조
      1) 기존 절대 펀더멘털 점수 = 70%
@@ -6176,7 +6162,7 @@ function recommendationDetailsHtml(
     // 데이터가 충분할수록 원점수에 가깝게 유지하되,
     // 데이터 부족을 이유로 점수를 과도하게 깎지 않습니다.
     const confidenceFactor =
-      0.65 + (0.35 * (quality.percent / 100));
+      0.50 + (0.50 * (quality.percent / 100));
 
     const confidenceAdjustedScore = clamp(
       rawTotal * confidenceFactor,
@@ -6202,6 +6188,7 @@ function recommendationDetailsHtml(
       score: confidenceAdjustedScore,
       rawScore: rawTotal,
       confidenceFactor,
+      scoringVersion: "v10-data-validation",
       growth,
       profitability,
       financialStrength,
@@ -6235,7 +6222,7 @@ function recommendationDetailsHtml(
         pe: trailingPe,
         ps: safeNumber(data["PriceToSalesRatioTTM"]),
         evEbitda: safeNumber(data["EVToEBITDA"]),
-        beta: safeNumber(data["Beta"])
+        beta: (() => { const v = safeNumber(data["Beta"]); return v !== null && v > 0 && v <= 5 ? v : null; })()
       }
     };
   }
