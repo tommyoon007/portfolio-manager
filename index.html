@@ -5407,10 +5407,10 @@ function recommendationDetailsHtml(
     if (!available.length || !parts.length) return { score: 0, coverage: 0 };
     const avg = available.reduce((sum, part) => sum + part.score, 0) / available.length;
     const coverage = available.length / parts.length;
-    // Coverage is applied proportionally: one valid metric out of four cannot
-    // earn almost the full category score simply because the other metrics are missing.
+    // 점수는 확인된 지표의 평균으로 산출하고, 누락률은 별도 데이터 신뢰도에 반영합니다.
+    // 카테고리 점수와 전체 신뢰도에서 데이터 누락을 중복 감점하지 않도록 합니다.
     return {
-      score: clamp(avg * maxPoints * coverage, 0, maxPoints),
+      score: clamp(avg * maxPoints, 0, maxPoints),
       coverage
     };
   }
@@ -6159,10 +6159,10 @@ function recommendationDetailsHtml(
       100
     );
 
-    // 데이터가 충분할수록 원점수에 가깝게 유지하되,
-    // 데이터 부족을 이유로 점수를 과도하게 깎지 않습니다.
+    // 데이터 신뢰도는 점수에 한 번만 완만하게 반영합니다.
+    // 세부 카테고리에서 이미 누락률을 감점하지 않으므로 이 계수는 보수성만 조절합니다.
     const confidenceFactor =
-      0.50 + (0.50 * (quality.percent / 100));
+      0.80 + (0.20 * (quality.percent / 100));
 
     const confidenceAdjustedScore = clamp(
       rawTotal * confidenceFactor,
@@ -6188,7 +6188,7 @@ function recommendationDetailsHtml(
       score: confidenceAdjustedScore,
       rawScore: rawTotal,
       confidenceFactor,
-      scoringVersion: "v10-data-validation",
+      scoringVersion: "v11-balanced-coverage",
       growth,
       profitability,
       financialStrength,
