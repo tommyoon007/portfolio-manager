@@ -4958,19 +4958,16 @@ function recommendationDetailsHtml(
   }
 
   function hasFreshFundamentalCache(ticker) {
+    const cached = fundamentalCache[String(ticker || "").toUpperCase()];
+    if (!cached || !cached.savedAt || !cached.data) return false;
 
-    const cached = fundamentalCache[ticker];
+    const age = Date.now() - new Date(cached.savedAt).getTime();
+    const sevenDays = 7 * 24 * 60 * 60 * 1000;
 
-    if (cached && cached.savedAt && cached.data) {
-      const age = Date.now() - new Date(cached.savedAt).getTime();
-      const sevenDays = 7 * 24 * 60 * 60 * 1000;
-      if (Number.isFinite(age) && age >= 0 && age < sevenDays) {
-        return true;
-      }
-    }
-
-    // SEC 회계자료는 시장 밸류에이션 지표가 아니므로 시장 데이터 캐시로 간주하지 않습니다.
-    return false;
+    // 최근 캐시라도 시장 지표가 실제로 하나 이상 없으면 조회가 필요합니다.
+    // SEC 재무자료만 포함된 캐시는 시장 데이터 캐시로 인정하지 않습니다.
+    return Number.isFinite(age) && age >= 0 && age < sevenDays &&
+      hasUsableMarketData(cached.data);
   }
 
 
@@ -6673,6 +6670,7 @@ function recommendationDetailsHtml(
     const needsAnyAlphaCall = holdings.some(item => {
       const type = detectAssetType(item.ticker, null);
       return type === "STOCK" &&
+        !getSecRecord(item.ticker) &&
         !hasFreshFundamentalCache(item.ticker);
     });
 
