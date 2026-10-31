@@ -7188,8 +7188,8 @@ function recommendationDetailsHtml(
   }
 
   async function getBatchPrices(tickers, statusElement) {
+    // Twelve Data는 선택사항입니다. 키가 없어도 무료 종가 보조경로를 실행합니다.
     const twelveKey = localStorage.getItem(TWELVE_DATA_KEY_STORAGE);
-    if (!twelveKey) throw new Error("Twelve Data API Key가 없습니다. 데이터 설정에서 시세용 Key를 저장하세요.");
 
     const uniqueTickers = [...new Set(
       tickers
@@ -7243,45 +7243,48 @@ function recommendationDetailsHtml(
 
       updateProgress(`시세 조회 중 — 신규 ${i + 1}~${batchEnd}/${staleTickers.length} · 전체 ${Object.keys(results).length}/${total}`);
 
-      try {
-        calls++;
-        let { response, data } = await requestTwelveBatch(chunk, twelveKey);
-
-        if (response.status === 429) {
-          updateProgress(`Twelve Data 429 — ${chunk.length}종목, 61초 후 1회 재시도합니다.`);
-          await sleep(61000);
+      if (twelveKey) {
+        try {
           calls++;
-          ({ response, data } = await requestTwelveBatch(chunk, twelveKey));
-        }
+          let { response, data } = await requestTwelveBatch(chunk, twelveKey);
 
-        if (!response.ok) {
-          throw new Error(`Twelve Data HTTP ${response.status}${data && data.message ? " — " + data.message : ""}`);
-        }
-        if (data && data.code && data.message) {
-          throw new Error("Twelve Data: " + String(data.message));
-        }
-
-        Object.keys(data || {}).forEach(symbol => {
-          const row = data[symbol];
-          if (!row || typeof row !== "object") return;
-          const price = Number(row.price);
-          if (Number.isFinite(price) && price > 0) {
-            const key = String(symbol).toUpperCase();
-            results[key] = {
-              price,
-              date: new Date().toISOString(),
-              status: "LIVE",
-              label: "현재가 (Twelve Data)",
-              source: "twelvedata"
-            };
+          if (response.status === 429) {
+            updateProgress(`Twelve Data 429 — ${chunk.length}종목, 61초 후 1회 재시도합니다.`);
+            await sleep(61000);
+            calls++;
+            ({ response, data } = await requestTwelveBatch(chunk, twelveKey));
           }
-        });
 
-        batchOk = true;
-      } catch (error) {
-        twelveError = error;
-        failedBatches++;
-        console.error("Twelve Data batch failed", chunk, error);
+          if (!response.ok) {
+            throw new Error(`Twelve Data HTTP ${response.status}${data && data.message ? " — " + data.message : ""}`);
+          }
+          if (data && data.code && data.message) {
+            throw new Error("Twelve Data: " + String(data.message));
+          }
+
+          Object.keys(data || {}).forEach(symbol => {
+            const row = data[symbol];
+            if (!row || typeof row !== "object") return;
+            const price = Number(row.price);
+            if (Number.isFinite(price) && price > 0) {
+              const key = String(symbol).toUpperCase();
+              results[key] = {
+                price,
+                date: new Date().toISOString(),
+                status: "LIVE",
+                label: "현재가 (Twelve Data)",
+                source: "twelvedata"
+              };
+            }
+          });
+          batchOk = true;
+        } catch (error) {
+          twelveError = error;
+          failedBatches++;
+          console.error("Twelve Data batch failed", chunk, error);
+        }
+      } else {
+        updateProgress("Twelve Data Key 없음 — 무료 종가 조회로 진행합니다.");
       }
 
       // 부분 실패 포함: 이번 배치에서 아직 가격을 못 받은 종목만 Alpha fallback.
