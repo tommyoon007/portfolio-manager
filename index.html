@@ -5030,35 +5030,42 @@ function recommendationDetailsHtml(
 
         const avData = await response.json();
 
-        // Alpha Vantage는 요청 제한뿐 아니라 플랜/엔드포인트 안내를
-        // "Information" 필드로 반환하기도 합니다. 이를 정상 데이터로 캐시하면
-        // 시장 지표가 영구적으로 빈 값처럼 남을 수 있어 명시적으로 차단합니다.
-        if (avData && (avData["Note"] || avData["Information"])) {
-          const message = avData["Note"] || avData["Information"];
-          throw new Error("Alpha Vantage 응답 안내: " + message);
+        // Alpha Vantage는 제한/권한 안내를 Note 또는 Information으로 반환할 수 있습니다.
+        // 이런 응답을 정상 OVERVIEW 데이터로 합치면 시장 지표가 계속 0/6으로 남습니다.
+        if (avData && avData["Note"]) {
+          throw new Error("Alpha Vantage 요청 제한: " + avData["Note"]);
+        }
+
+        if (avData && avData["Information"]) {
+          throw new Error("Alpha Vantage 안내/권한 응답: " + avData["Information"]);
         }
 
         if (avData && avData["Error Message"]) {
-          throw new Error(symbol + ": Alpha Vantage 오류: " + avData["Error Message"]);
+          throw new Error(symbol + ": " + avData["Error Message"]);
         }
 
         const hasOverviewFields = avData && [
-          "MarketCapitalization", "PERatio", "ForwardPE", "PEGRatio",
-          "PriceToSalesRatioTTM", "EVToEBITDA", "Beta", "Name"
-        ].some(field => avData[field] !== undefined && avData[field] !== null &&
-          String(avData[field]).trim() !== "" && String(avData[field]).toLowerCase() !== "none");
+          "MarketCapitalization", "PERatio", "ForwardPE",
+          "PEGRatio", "PriceToSalesRatioTTM", "EVToEBITDA", "Beta"
+        ].some(field => {
+          const value = avData[field];
+          return value !== null && value !== undefined &&
+            String(value).trim() !== "" &&
+            String(value).trim().toLowerCase() !== "none" &&
+            Number.isFinite(Number(value));
+        });
 
         if (hasOverviewFields) {
           marketData = { ...marketData, ...avData };
         } else {
-          throw new Error("Alpha Vantage OVERVIEW 응답에 유효한 시장 지표가 없습니다.");
+          throw new Error(symbol + ": OVERVIEW 응답에 유효한 시장 지표가 없습니다.");
         }
       } catch (error) {
         // SEC 데이터가 있으면 Alpha 실패는 치명적 오류가 아닙니다.
         if (!secData) {
           throw error;
         }
-        console.warn(symbol + " Alpha Vantage 보조조회 실패:", error);
+        console.warn("[시장 데이터 미수신] " + symbol + " Alpha Vantage 보조조회 실패:", error);
       }
     }
 
