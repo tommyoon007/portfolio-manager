@@ -4979,115 +4979,75 @@ function recommendationDetailsHtml(
   ========================================================= */
 
   async function getFundamentals(ticker) {
-
     const symbol = String(ticker || "").trim().toUpperCase();
     if (!symbol) throw new Error("티커가 없습니다.");
 
-    // 중요: SEC 데이터를 먼저 읽습니다.
-    // 기존 코드는 7일짜리 Alpha 캐시가 있으면 여기서 즉시 return하여
-    // 새로 생성된 sec_financials.json을 전혀 사용하지 않는 문제가 있었습니다.
+    // SEC EDGAR 재무자료를 기본 데이터로 사용합니다.
+    // Alpha Vantage OVERVIEW는 무료 API에서 안정적으로 제공되지 않으므로
+    // 이 함수에서는 유료 엔드포인트를 반복 호출하지 않습니다.
     await loadSecFinancials();
     const secData = getSecRecord(symbol);
-
     const cached = fundamentalCache[symbol];
-    const sevenDays = 7 * 24 * 60 * 60 * 1000;
+    const cachedData = cached && cached.data && typeof cached.data === "object"
+      ? cached.data : {};
 
-    let cachedIsFresh = false;
-    if (cached && cached.savedAt && cached.data) {
-      const age = Date.now() - new Date(cached.savedAt).getTime();
-      cachedIsFresh = Number.isFinite(age) && age >= 0 && age < sevenDays;
+    if (!secData && Object.keys(cachedData).length === 0) {
+      throw new Error(symbol + ": SEC 재무자료가 없습니다.");
     }
 
-    const apiKey = localStorage.getItem(API_KEY_STORAGE);
-    if (cachedIsFresh) {
-      // 캐시가 신선하고 시장 데이터도 있으면 재사용합니다.
-      // 시장 데이터가 비어 있고 API 키가 있으면 아래에서 Alpha Vantage를 다시 조회합니다.
-      const mergedCached = secData
-        ? mergeFundamentalData(secData, cached.data)
-        : cached.data;
-      if (hasUsableMarketData(mergedCached) || !apiKey) {
-        return mergedCached;
-      }
-    }
-
-    // SEC 데이터가 있어도 시장 필드가 누락됐다면 Alpha Vantage OVERVIEW를 보조 조회합니다.
-    // 캐시된 값은 유지하고, 새로 받은 시장 데이터를 합쳐 저장합니다.
-    let marketData = cachedIsFresh && cached && cached.data ? cached.data : {};
-
-    if (apiKey) {
-      try {
-        const url =
-          "https://www.alphavantage.co/query" +
-          "?function=OVERVIEW" +
-          "&symbol=" + encodeURIComponent(symbol) +
-          "&apikey=" + encodeURIComponent(apiKey);
-
-        const response = await fetch(url);
-
-        if (!response.ok) {
-          throw new Error("재무 데이터 API 오류: " + response.status);
-        }
-
-        const avData = await response.json();
-
-        // Alpha Vantage는 제한/권한 안내를 Note 또는 Information으로 반환할 수 있습니다.
-        // 이런 응답을 정상 OVERVIEW 데이터로 합치면 시장 지표가 계속 0/6으로 남습니다.
-        if (avData && avData["Note"]) {
-          throw new Error("Alpha Vantage 요청 제한: " + avData["Note"]);
-        }
-
-        if (avData && avData["Information"]) {
-          throw new Error("Alpha Vantage 안내/권한 응답: " + avData["Information"]);
-        }
-
-        if (avData && avData["Error Message"]) {
-          throw new Error(symbol + ": " + avData["Error Message"]);
-        }
-
-        const hasOverviewFields = avData && [
-          "MarketCapitalization", "PERatio", "ForwardPE",
-          "PEGRatio", "PriceToSalesRatioTTM", "EVToEBITDA", "Beta"
-        ].some(field => {
-          const value = avData[field];
-          return value !== null && value !== undefined &&
-            String(value).trim() !== "" &&
-            String(value).trim().toLowerCase() !== "none" &&
-            Number.isFinite(Number(value));
-        });
-
-        if (hasOverviewFields) {
-          marketData = { ...marketData, ...avData };
-        } else {
-          throw new Error(symbol + ": OVERVIEW 응답에 유효한 시장 지표가 없습니다.");
-        }
-      } catch (error) {
-        // SEC 데이터가 있으면 Alpha 실패는 치명적 오류가 아닙니다.
-        if (!secData) {
-          throw error;
-        }
-        console.warn("[시장 데이터 미수신] " + symbol + " Alpha Vantage 보조조회 실패:", error);
-      }
-    }
-
-    if (!secData && Object.keys(marketData).length === 0) {
-      throw new Error(
-        symbol + ": SEC 재무데이터가 없고 Alpha Vantage API Key도 사용할 수 없습니다."
-      );
-    }
-
-    const data = mergeFundamentalData(secData, marketData);
+    const data = mergeFundamentalData(secData || {}, cachedData);
     data.__ticker = symbol;
+    data.__sourceNote = secData
+      ? "SEC EDGAR 재무자료 + 현재 주가로 계산한 지표"
+      : "저장된 재무 캐시(SEC 자료 없음)";
 
     fundamentalCache[symbol] = {
       savedAt: new Date().toISOString(),
       data: data
     };
+    try {
+      localStorage.setItem(FUNDAMENTAL_CACHE_KEY, JSON.stringify(fundamentalCache));
+    } catch (error) {
+      console.warn("재무 캐시 저장 실패:", error);
+    }
+    return data;
+  }
 
-    localStorage.setItem(
-      FUNDAMENTAL_CACHE_KEY,
-      JSON.stringify(fundamentalCache)
-    );
+  // 현재 주가와 SEC 재무자료를 결합해 계산 가능한 시장지표만 산출합니다.
+  // PEG와 베타처럼 별도 성장률/가격 시계열이 필요한 값은 임의로 만들지 않습니다.
+  function applyDerivedMarketMetrics(data, currentPrice) {
+    if (!data || typeof data !== "object") return data;
+    const price = safeNumber(currentPrice);
+    const shares = firstNumber(data, ["SharesOutstanding"]);
+    const revenue = firstNumber(data, ["RevenueTTM"]);
+    const netIncome = firstNumber(data, ["NetIncomeTTM"]);
+    const debt = firstNumber(data, ["TotalDebt"]);
+    const cash = firstNumber(data, ["Cash"]);
+    const ebitda = firstNumber(data, ["EBITDA"]);
 
+    if (price !== null && price > 0) data.__currentPrice = price;
+    if (price !== null && price > 0 && shares !== null && shares > 0) {
+      const marketCap = price * shares;
+      data.MarketCapitalization = marketCap;
+      data.__marketCapSource = "현재 주가 × SEC 발행주식 수";
+      if (netIncome !== null && netIncome > 0) {
+        data.PERatio = marketCap / netIncome;
+        data.__peSource = "시가총액 ÷ 최근 12개월 순이익";
+      } else {
+        delete data.PERatio;
+      }
+      if (revenue !== null && revenue > 0) {
+        data.PriceToSalesRatioTTM = marketCap / revenue;
+      }
+      if (debt !== null && cash !== null && ebitda !== null && ebitda > 0) {
+        const enterpriseValue = marketCap + debt - cash;
+        if (enterpriseValue > 0) data.EVToEBITDA = enterpriseValue / ebitda;
+      }
+    }
+    // SEC 재무파일에는 PEG와 가격 변동 기반 베타의 원자료가 없어 미산출 상태를 유지합니다.
+    if (data.__sourceNote && data.__sourceNote.includes("SEC EDGAR")) {
+      data.__derivedMetrics = true;
+    }
     return data;
   }
 
@@ -6746,9 +6706,8 @@ function recommendationDetailsHtml(
             미등록 티커만 OVERVIEW의 AssetType으로 추가 판별합니다.
           */
 
-          needsFundamentalApi =
-            assetType === "STOCK" &&
-            !hasFreshFundamentalCache(item.ticker);
+          // SEC 재무자료 + 현재 시세로 계산하므로 Alpha Vantage OVERVIEW 호출 불필요
+          needsFundamentalApi = false;
 
           if (
             assetType === "STOCK"
@@ -6770,6 +6729,7 @@ function recommendationDetailsHtml(
                 item.ticker
               );
 
+            applyDerivedMarketMetrics(data, item.currentPrice);
 
             assetType =
               detectAssetType(
