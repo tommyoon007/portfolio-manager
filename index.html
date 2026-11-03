@@ -5030,16 +5030,34 @@ function recommendationDetailsHtml(
 
         const avData = await response.json();
 
-        if (avData && avData["Note"]) {
-          throw new Error("Alpha Vantage API 요청 제한");
+        // Alpha Vantage는 한도 초과 시 Note뿐 아니라 Information도 반환합니다.
+        // 이를 정상 데이터처럼 캐시에 합치면 시장 지표가 0/6으로 고정될 수 있습니다.
+        if (avData && (avData["Note"] || avData["Information"])) {
+          throw new Error(
+            "Alpha Vantage 제한 응답: " +
+            String(avData["Note"] || avData["Information"]).slice(0, 220)
+          );
         }
 
         if (avData && avData["Error Message"]) {
           throw new Error(symbol + ": Alpha Vantage 데이터를 찾을 수 없습니다.");
         }
 
-        if (avData && Object.keys(avData).length > 0) {
+        const hasOverviewPayload = avData && [
+          "MarketCapitalization", "PERatio", "ForwardPE", "PEGRatio",
+          "PriceToSalesRatioTTM", "EVToEBITDA", "Beta"
+        ].some(field => {
+          const value = avData[field];
+          return value !== null && value !== undefined &&
+            String(value).trim() !== "" &&
+            String(value).trim().toLowerCase() !== "none" &&
+            Number.isFinite(Number(value));
+        });
+
+        if (hasOverviewPayload) {
           marketData = { ...marketData, ...avData };
+        } else if (avData && Object.keys(avData).length > 0) {
+          throw new Error("Alpha Vantage가 유효한 시장 지표를 반환하지 않았습니다.");
         }
       } catch (error) {
         // SEC 데이터가 있으면 Alpha 실패는 치명적 오류가 아닙니다.
