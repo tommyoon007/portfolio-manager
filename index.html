@@ -7262,21 +7262,32 @@ function recommendationDetailsHtml(
             throw new Error("Twelve Data: " + String(data.message));
           }
 
-          Object.keys(data || {}).forEach(symbol => {
-            const row = data[symbol];
-            if (!row || typeof row !== "object") return;
-            const price = Number(row.price);
-            if (Number.isFinite(price) && price > 0) {
-              const key = String(symbol).toUpperCase();
-              results[key] = {
-                price,
-                date: new Date().toISOString(),
-                status: "LIVE",
-                label: "현재가 (Twelve Data)",
-                source: "twelvedata"
-              };
-            }
-          });
+          // 응답이 여러 종목의 심볼별 객체 또는 단일 종목의 {price: "..."} 형태인 경우 모두 처리
+          let parsedCount = 0;
+          const addTwelvePrice = (symbol, rawPrice) => {
+            const key = String(symbol || "").toUpperCase();
+            const price = Number(rawPrice);
+            if (!chunk.includes(key) || !Number.isFinite(price) || price <= 0) return;
+            results[key] = {
+              price,
+              date: new Date().toISOString(),
+              status: "LIVE",
+              label: "현재가 (Twelve Data)",
+              source: "twelvedata"
+            };
+            parsedCount++;
+          };
+
+          if (data && data.price !== undefined && chunk.length === 1) {
+            addTwelvePrice(chunk[0], data.price);
+          } else if (data && typeof data === "object") {
+            Object.entries(data).forEach(([symbol, row]) => {
+              if (row && typeof row === "object") addTwelvePrice(symbol, row.price);
+            });
+          }
+          if (parsedCount === 0) {
+            throw new Error("Twelve Data 응답에서 종목별 가격을 찾지 못했습니다.");
+          }
           batchOk = true;
         } catch (error) {
           twelveError = error;
