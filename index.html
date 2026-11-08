@@ -1828,6 +1828,7 @@
   let secFinancials = null;
   let secFinancialsLoaded = false;
   let secFinancialsLoadPromise = null;
+  let secFinancialsLoadError = null;
   let etfHoldingsData = null;
   let etfHoldingsLoaded = false;
   let etfHoldingsLoadPromise = null;
@@ -4855,7 +4856,8 @@ function recommendationDetailsHtml(
         secFinancialsLoaded = true;
         return secFinancials;
       } catch (error) {
-        console.warn("SEC 재무데이터 로드 실패:", error);
+        console.error("SEC 재무데이터 로드 실패:", error);
+        secFinancialsLoadError = error && error.message ? error.message : String(error);
         secFinancials = {};
         secFinancialsLoaded = true;
         return {};
@@ -6640,6 +6642,11 @@ function recommendationDetailsHtml(
     // 추천 계산 전에 SEC 파일을 확실히 로드합니다.
     // 이 시점이 needsAnyAlphaCall보다 앞서야 SEC 보유종목을 정확히 인식합니다.
     await loadSecFinancials();
+    const secRecordCount = Object.keys(secFinancials || {}).length;
+    if (secRecordCount === 0 && secFinancialsLoadError) {
+      status.className = "status negative";
+      status.textContent = "SEC 재무파일을 읽지 못했습니다: " + secFinancialsLoadError + " · GitHub 저장소 루트에 sec_financials.json 파일이 있는지 확인하세요.";
+    }
 
     const scoredItems = [];
 
@@ -7301,13 +7308,15 @@ function recommendationDetailsHtml(
       completed = Math.min(i + chunk.length, staleTickers.length);
       updateProgress(`시세 조회 진행 — 신규 ${completed}/${staleTickers.length} · 전체 성공 ${Object.keys(results).length}/${total}` + (batchOk ? "" : " · Twelve Data 실패/보조조회 시도"));
 
-      if (completed < staleTickers.length) {
+      if (completed < staleTickers.length && twelveKey) {
         let remaining = 60;
         while (remaining > 0) {
           updateProgress(`시세 ${completed}/${staleTickers.length} 처리 · 다음 8종목까지 ${remaining}초 · 성공 ${Object.keys(results).length}개`);
           await sleep(1000);
           remaining--;
         }
+      } else if (completed < staleTickers.length) {
+        await sleep(1200);
       }
     }
 
@@ -7481,7 +7490,7 @@ function recommendationDetailsHtml(
 
   async function refreshPrices() {
     if (holdings.length === 0) { alert("먼저 종목을 추가하세요."); return; }
-    if (!localStorage.getItem(TWELVE_DATA_KEY_STORAGE)) { alert("데이터 설정에서 Twelve Data API Key를 먼저 저장하세요."); return; }
+    // Twelve Data 키가 없어도 Alpha Vantage/Yahoo 종가 보조 경로를 시도합니다.
 
     const status = document.getElementById("updateStatus");
     const button = document.getElementById("refreshPricesButton");
@@ -7552,6 +7561,7 @@ function recommendationDetailsHtml(
     status.className = success > 0 ? "status" : "status negative";
     const errorItems = holdings.filter(item => item.priceError).slice(0, 3).map(item => item.ticker + " — " + item.priceError);
     let message = `시세 업데이트 완료 — 성공 ${success}개 / 실패 ${failed}개 / Twelve Data ${calls}회 / 캐시 ${cacheHits}개 / Alpha 보조 ${alphaFallbacks}회`;
+    if (!localStorage.getItem(TWELVE_DATA_KEY_STORAGE)) message += " / Twelve Data 키 없음(무료 보조조회 시도)";
     if (failedBatches) message += ` / 실패 배치 ${failedBatches}개`;
     if (errorItems.length) message += "\n" + errorItems.join("\n");
     status.textContent = message;
