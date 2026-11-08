@@ -7074,7 +7074,7 @@ function recommendationDetailsHtml(
   /* =========================================================
      시세 조회 v2
      - Twelve Data 우선
-     - 10분 가격 캐시 우선 사용
+     - 자동 캐시는 10분간 사용하되, 수동 업데이트는 캐시를 우회해 새로 조회
      - Basic 8 credits/minute에 맞춰 최대 8종목씩 요청
      - HTTP 429는 1회 재시도 후 Alpha Vantage를 제한적으로 fallback
      - Alpha Vantage fallback은 한 번의 업데이트에서 최대 5종목만 사용
@@ -7168,7 +7168,7 @@ function recommendationDetailsHtml(
     return { response, data };
   }
 
-  async function getBatchPrices(tickers, statusElement) {
+  async function getBatchPrices(tickers, statusElement, forceRefresh = false) {
     // Twelve Data는 선택사항입니다. 키가 없어도 무료 종가 보조경로를 실행합니다.
     const twelveKey = localStorage.getItem(TWELVE_DATA_KEY_STORAGE);
 
@@ -7186,7 +7186,7 @@ function recommendationDetailsHtml(
       const cached = priceCache[ticker];
       const fetchedAt = cached && new Date(cached.fetchedAt || cached.updatedAt || 0).getTime();
       const cachedPrice = Number(cached && cached.price);
-      if (Number.isFinite(cachedPrice) && cachedPrice > 0 && Number.isFinite(fetchedAt) && fetchedAt >= freshCutoff) {
+      if (!forceRefresh && Number.isFinite(cachedPrice) && cachedPrice > 0 && Number.isFinite(fetchedAt) && fetchedAt >= freshCutoff) {
         results[ticker] = {
           price: cachedPrice,
           date: cached.sourceDate || cached.date || new Date(fetchedAt).toISOString(),
@@ -7509,7 +7509,8 @@ function recommendationDetailsHtml(
     let cacheHits = 0;
 
     try {
-      const response = await getBatchPrices(tickers, status);
+      // 사용자가 직접 누른 시세 업데이트는 10분 캐시를 건너뛰고 공급처에 새로 요청합니다.
+      const response = await getBatchPrices(tickers, status, true);
       const results = response.results || {};
       calls = response.calls || 0;
       failedBatches = response.failedBatches || 0;
@@ -7560,7 +7561,11 @@ function recommendationDetailsHtml(
 
     status.className = success > 0 ? "status" : "status negative";
     const errorItems = holdings.filter(item => item.priceError).slice(0, 3).map(item => item.ticker + " — " + item.priceError);
-    let message = `시세 업데이트 완료 — 성공 ${success}개 / 실패 ${failed}개 / Twelve Data ${calls}회 / 캐시 ${cacheHits}개 / Alpha 보조 ${alphaFallbacks}회`;
+    const liveTwelve = Object.values(response?.results || {}).filter(x => x.source === "twelvedata").length;
+    const liveAlpha = Object.values(response?.results || {}).filter(x => x.source === "alphavantage").length;
+    const liveYahoo = Object.values(response?.results || {}).filter(x => x.source === "yahoo").length;
+    const cacheOnly = Object.values(response?.results || {}).filter(x => x.source === "cache").length;
+    let message = `시세 조회 결과 — 성공 ${success}개 / 실패 ${failed}개 · 신규조회: Twelve Data ${liveTwelve}개, Alpha Vantage ${liveAlpha}개, Yahoo ${liveYahoo}개 / 캐시 재사용 ${cacheOnly}개`;
     if (!localStorage.getItem(TWELVE_DATA_KEY_STORAGE)) message += " / Twelve Data 키 없음(무료 보조조회 시도)";
     if (failedBatches) message += ` / 실패 배치 ${failedBatches}개`;
     if (errorItems.length) message += "\n" + errorItems.join("\n");
