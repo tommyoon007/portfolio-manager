@@ -4991,15 +4991,17 @@ function recommendationDetailsHtml(
     const cachedData = cached && cached.data && typeof cached.data === "object"
       ? cached.data : {};
 
-    if (!secData && Object.keys(cachedData).length === 0) {
-      throw new Error(symbol + ": SEC 재무자료가 없습니다.");
-    }
-
+    // SEC에 해당 티커가 없거나 일부 재무 항목이 비어 있어도 전체 추천을
+    // 중단하지 않습니다. 확보된 캐시와 SEC 데이터만 사용하고, 없는 값은
+    // 결측으로 남겨 데이터 품질 점수에 반영합니다.
     const data = mergeFundamentalData(secData || {}, cachedData);
     data.__ticker = symbol;
     data.__sourceNote = secData
       ? "SEC EDGAR 재무자료 + 현재 주가로 계산한 지표"
-      : "저장된 재무 캐시(SEC 자료 없음)";
+      : (Object.keys(cachedData).length
+          ? "저장된 재무 캐시(SEC 자료 없음)"
+          : "SEC 재무자료 미확보 — 결측 데이터로 평가");
+    data.__financialDataMissing = !secData && Object.keys(cachedData).length === 0;
 
     fundamentalCache[symbol] = {
       savedAt: new Date().toISOString(),
@@ -5025,7 +5027,12 @@ function recommendationDetailsHtml(
     const cash = firstNumber(data, ["Cash"]);
     const ebitda = firstNumber(data, ["EBITDA"]);
 
-    if (price !== null && price > 0) data.__currentPrice = price;
+    if (price !== null && price > 0) {
+      data.__currentPrice = price;
+      data.__marketPriceApplied = true;
+    } else {
+      data.__marketPriceApplied = false;
+    }
     if (price !== null && price > 0 && shares !== null && shares > 0) {
       const marketCap = price * shares;
       data.MarketCapitalization = marketCap;
@@ -5033,8 +5040,6 @@ function recommendationDetailsHtml(
       if (netIncome !== null && netIncome > 0) {
         data.PERatio = marketCap / netIncome;
         data.__peSource = "시가총액 ÷ 최근 12개월 순이익";
-      } else {
-        delete data.PERatio;
       }
       if (revenue !== null && revenue > 0) {
         data.PriceToSalesRatioTTM = marketCap / revenue;
@@ -6646,20 +6651,9 @@ function recommendationDetailsHtml(
     let rateLimited = false;
     const failures = [];
 
-    const needsAnyAlphaCall = holdings.some(item => {
-      const type = detectAssetType(item.ticker, null);
-      return type === "STOCK" &&
-        !getSecRecord(item.ticker) &&
-        !hasFreshFundamentalCache(item.ticker);
-    });
-
-    if (needsAnyAlphaCall && !apiKey) {
-      button.disabled = false;
-      status.className = "status error";
-      status.textContent =
-        "SEC 재무데이터가 없는 종목은 Alpha Vantage API Key가 필요합니다.";
-      return;
-    }
+    // Alpha Vantage OVERVIEW는 유료 엔드포인트이므로 무료 키로 재무자료를
+    // 보장할 수 없습니다. SEC에 없는 종목 때문에 전체 추천을 막지 않습니다.
+    // 해당 종목은 확보된 데이터만으로 평가하고 데이터 품질을 낮게 표시합니다.
 
     try {
 
@@ -6706,7 +6700,8 @@ function recommendationDetailsHtml(
             미등록 티커만 OVERVIEW의 AssetType으로 추가 판별합니다.
           */
 
-          // SEC 재무자료 + 현재 시세로 계산하므로 Alpha Vantage OVERVIEW 호출 불필요
+          // SEC EDGAR를 무료 재무 원천으로 사용합니다.
+          // Alpha Vantage OVERVIEW는 유료이므로 자동 호출하지 않습니다.
           needsFundamentalApi = false;
 
           if (
