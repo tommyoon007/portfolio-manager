@@ -1,103 +1,103 @@
 {
-  "updated_at": "2026-11-09T18:59:08.677062+00:00",
+  "updated_at": "2026-11-10T16:31:02.151661+00:00",
   "source": "Official VanEck/iShares holdings downloads",
   "data": {
     "SMH": {
       "source_url": "https://www.vaneck.com/us/en/investments/semiconductor-etf-smh/downloads/holdings/",
-      "holdings_date": "2026-11-06",
-      "retrieved_at": "2026-11-09T18:59:07.324326+00:00",
+      "holdings_date": "2026-11-09",
+      "retrieved_at": "2026-11-10T16:31:01.092474+00:00",
       "holdings": [
         {
           "ticker": "NVDA",
-          "weight_pct": 20.75
+          "weight_pct": 18.91
         },
         {
           "ticker": "TSM",
-          "weight_pct": 9.97
+          "weight_pct": 9.83
         },
         {
           "ticker": "TXN",
-          "weight_pct": 5.92
+          "weight_pct": 6.01
         },
         {
           "ticker": "AVGO",
-          "weight_pct": 5.7
+          "weight_pct": 5.9
         },
         {
           "ticker": "AMD",
-          "weight_pct": 5.36
+          "weight_pct": 5.78
         },
         {
           "ticker": "ADI",
-          "weight_pct": 4.87
+          "weight_pct": 5.03
         },
         {
           "ticker": "ASML",
-          "weight_pct": 4.61
-        },
-        {
-          "ticker": "QCOM",
-          "weight_pct": 4.38
+          "weight_pct": 4.66
         },
         {
           "ticker": "KLAC",
-          "weight_pct": 4.23
+          "weight_pct": 4.4
+        },
+        {
+          "ticker": "QCOM",
+          "weight_pct": 4.33
         },
         {
           "ticker": "MU",
-          "weight_pct": 4.17
-        },
-        {
-          "ticker": "SKHY",
-          "weight_pct": 3.98
+          "weight_pct": 4.22
         },
         {
           "ticker": "AMAT",
-          "weight_pct": 3.96
+          "weight_pct": 4.2
+        },
+        {
+          "ticker": "SKHY",
+          "weight_pct": 4.0
         },
         {
           "ticker": "LRCX",
-          "weight_pct": 3.54
+          "weight_pct": 3.73
         },
         {
           "ticker": "MRVL",
-          "weight_pct": 3.13
+          "weight_pct": 3.27
         },
         {
           "ticker": "INTC",
-          "weight_pct": 2.96
+          "weight_pct": 2.97
         },
         {
           "ticker": "CDNS",
-          "weight_pct": 2.43
+          "weight_pct": 2.44
         },
         {
           "ticker": "SNPS",
-          "weight_pct": 2.41
-        },
-        {
-          "ticker": "NXPI",
-          "weight_pct": 1.39
+          "weight_pct": 2.38
         },
         {
           "ticker": "MPWR",
-          "weight_pct": 1.38
+          "weight_pct": 1.53
         },
         {
-          "ticker": "STM",
-          "weight_pct": 0.93
+          "ticker": "NXPI",
+          "weight_pct": 1.37
         },
         {
           "ticker": "TER",
-          "weight_pct": 0.9
+          "weight_pct": 0.96
+        },
+        {
+          "ticker": "STM",
+          "weight_pct": 0.95
         },
         {
           "ticker": "ARM",
-          "weight_pct": 0.89
+          "weight_pct": 0.9
         },
         {
           "ticker": "ALAB",
-          "weight_pct": 0.79
+          "weight_pct": 0.86
         },
         {
           "ticker": "MCHP",
@@ -105,7 +105,7 @@
         },
         {
           "ticker": "ON",
-          "weight_pct": 0.51
+          "weight_pct": 0.53
         }
       ],
       "count": 25,
@@ -114,7 +114,7 @@
     "SOXX": {
       "source_url": "https://www.ishares.com/us/products/239705/ishares-semiconductor-etf/latest-holdings.csv",
       "holdings_date": "2026-11-06",
-      "retrieved_at": "2026-11-09T18:59:08.677040+00:00",
+      "retrieved_at": "2026-11-10T16:31:02.151641+00:00",
       "holdings": [
         {
           "ticker": "AMD",
