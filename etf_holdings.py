@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Download official SMH/SOXX holdings files and write etf_holdings.json.
+"""Download official SMH/SOXX/ROBO holdings files and write etf_holdings.json.
 
 SMH: follows the official VanEck page's holdings download link (XLS/XLSX/CSV).
 SOXX: downloads the official iShares holdings CSV endpoint.
+ROBO: reads the official ROBO Global ETFs page data (Exchange Traded Concepts CMS
+      JSON feed that renders the site's "HOLDINGS AS OF" table).
 Keeps a prior valid dataset for any provider that temporarily fails.
 """
 import csv
@@ -25,6 +27,12 @@ HEADERS = {
 }
 VANECK_PAGE = "https://www.vaneck.com/us/en/investments/semiconductor-etf-smh/"
 ISHARES_CSV = "https://www.ishares.com/us/products/239705/ishares-phlx-semiconductor-etf/1467271812596.ajax?fileType=csv&fileName=SOXX_holdings&dataType=fund"
+ROBO_PAGE = "https://www.roboglobaletfs.com/robo/"
+ROBO_HOLDINGS_API = [
+    "https://www.roboglobaletfs.com/api/cms/holdings",
+    "https://roboglobaletfs.com/api/cms/holdings",
+]
+ROBO_COMPONENT_ID = "roboglobaletfs-robo-HoldingsComponent-1"
 
 
 def norm(value):
@@ -497,6 +505,106 @@ def fetch_soxx():
     return rows, response.url, holdings_date
 
 
+def parse_plain_date(value):
+    """Convert a bare date string (e.g. 11/13/2026) to YYYY-MM-DD, else None."""
+    raw = re.sub(r"\s+", " ", str(value or "")).strip().replace(",", "")
+    for fmt in ("%m/%d/%Y", "%m-%d-%Y", "%Y-%m-%d", "%B %d %Y", "%b %d %Y"):
+        try:
+            return datetime.strptime(raw, fmt).date().isoformat()
+        except ValueError:
+            pass
+    return None
+
+
+def robo_ticker(value):
+    """Normalize a ROBO holdings ticker, dropping cash lines.
+
+    ROBO holds non-US listings, which the official file writes as
+    "<local code> <exchange code>" (e.g. "6954 JP"). Keep that official form;
+    only cash/settlement rows and empty values are dropped.
+    """
+    s = re.sub(r"\s+", " ", str(value or "")).strip().upper()
+    if not s or "CASH" in s:
+        return None
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9.\- ]{0,11}", s):
+        return None
+    return s
+
+
+def fetch_robo():
+    """Fetch ROBO holdings from the official ROBO Global ETFs site.
+
+    The official ROBO page renders its "HOLDINGS AS OF" table from the site's
+    own JSON feed, so the feed is the authoritative daily source. If the feed
+    is unreachable the previous dataset is kept by main().
+    """
+    session = requests.Session()
+    session.headers.update({
+        **HEADERS,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": ROBO_PAGE,
+    })
+    last_error = None
+
+    for url in ROBO_HOLDINGS_API:
+        try:
+            response = session.get(url, timeout=45, allow_redirects=True)
+            response.raise_for_status()
+            payload = response.json()
+        except Exception as exc:
+            last_error = exc
+            print(f"ROBO feed request failed: {url} ({exc})")
+            continue
+
+        records = payload.get("data") if isinstance(payload, dict) else payload
+        if isinstance(records, dict):
+            records = [records]
+        if not isinstance(records, list):
+            last_error = RuntimeError("ROBO feed did not contain a data list")
+            print(f"ROBO feed response unexpected: {url}")
+            continue
+
+        record = None
+        for item in records:
+            if not isinstance(item, dict):
+                continue
+            component_id = str(item.get("componentId") or "")
+            ticker = str(item.get("ticker") or "").strip().upper()
+            component_type = str(item.get("componentType") or "")
+            if component_id == ROBO_COMPONENT_ID or (
+                ticker == "ROBO" and component_type == "HoldingsComponent"
+            ):
+                record = item
+                break
+        if record is None:
+            last_error = RuntimeError("ROBO holdings component not found in feed")
+            print(f"ROBO holdings component not found: {url}")
+            continue
+
+        rows = []
+        for row in record.get("finData") or []:
+            if not isinstance(row, dict):
+                continue
+            ticker = robo_ticker(row.get("ticker"))
+            weight = number(row.get("percent_of_nav"))
+            if ticker and weight is not None:
+                rows.append({"ticker": ticker, "weight_pct": weight})
+        if len(rows) < 10:
+            last_error = RuntimeError(f"ROBO feed returned only {len(rows)} usable rows")
+            print(f"ROBO feed not parseable: {url} ({len(rows)} rows)")
+            continue
+
+        holdings_date = parse_plain_date(record.get("date"))
+        print(f"OK ROBO source: {url} ({len(rows)} parsed rows, date={holdings_date})")
+        return rows, url, holdings_date
+
+    if last_error:
+        print(f"ROBO last request error: {last_error}")
+    raise RuntimeError("ROBO: official ROBO Global ETFs holdings feed did not contain parseable holdings")
+
+
 def validate_rows(ticker, rows):
     dedup = {}
     for row in rows:
@@ -510,7 +618,7 @@ def validate_rows(ticker, rows):
 def main():
     result = {}
     errors = {}
-    fetchers = {"SMH": fetch_smh, "SOXX": fetch_soxx}
+    fetchers = {"SMH": fetch_smh, "SOXX": fetch_soxx, "ROBO": fetch_robo}
     old = {}
     if OUT.exists():
         try:
@@ -542,7 +650,7 @@ def main():
         raise RuntimeError("No valid ETF holdings obtained; refusing to overwrite with empty data.")
     payload = {
         "updated_at": datetime.now(timezone.utc).isoformat(),
-        "source": "Official VanEck/iShares holdings downloads",
+        "source": "Official VanEck/iShares/ROBO Global holdings downloads",
         "data": result,
         "errors": errors,
     }

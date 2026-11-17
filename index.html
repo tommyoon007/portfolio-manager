@@ -2719,6 +2719,21 @@
       topHoldings: "NVDA 9.18% · MU 9.17% · AMD 8.75% · AVGO 7.07% · INTC 5.64%",
       source: "https://www.ishares.com/us/products/239705/ishares-phlx-semiconductor-etf"
     },
+    ROBO: {
+      name: "ROBO Global Robotics and Automation Index ETF",
+      assets: "$1.81B",
+      assetsDate: "2026-11-13",
+      expense: "0.95%",
+      secYield: "공식 페이지에서 최신값 미확인",
+      pe: "공식 페이지에서 최신값 미확인",
+      pb: "공식 페이지에서 최신값 미확인",
+      holdingsDate: "2026-11-13",
+      topHolding: "ISRG 2.35%",
+      top1Weight: 2.35,
+      top5Weight: 9.51,
+      topHoldings: "ISRG 2.35% · PTC 1.93% · 6954 JP 1.77% · EMR 1.75% · ROK 1.71%",
+      source: "https://www.roboglobaletfs.com/robo/"
+    },
     MORT: {
       name: "VanEck Mortgage REIT Income ETF",
       assets: "$348.44M",
@@ -2778,7 +2793,7 @@
       ${f.riskNote ? `<div class="detail-quality"><strong>MORT 해석 주의</strong><br>높은 SEC 수익률·분배금 수익률은 분배금 지속성이나 원금 안정성을 보장하지 않습니다. 금리와 MBS 스프레드 변화, 레버리지 비용에 따라 가격과 분배금이 함께 변할 수 있습니다.</div>` : ""}
       <div class="detail-quality">
         <strong>데이터 기준 및 출처</strong><br>
-        ${symbol === "SMH" ? "운용자산/상위 편입비중 기준일: 2026-10-13 · SEC 수익률 기준일: 2026-10-13" : symbol === "SOXX" ? "운용자산/PER/PBR 기준일: 2026-10-07 · 상위 편입비중 기준일: 2026-09-09 · SEC 수익률 기준일: 2026-08-31" : "운용자산/수익률 기준일: 2026-09-10"}<br>
+        ${symbol === "SMH" ? "운용자산/상위 편입비중 기준일: 2026-10-13 · SEC 수익률 기준일: 2026-10-13" : symbol === "SOXX" ? "운용자산/PER/PBR 기준일: 2026-10-07 · 상위 편입비중 기준일: 2026-09-09 · SEC 수익률 기준일: 2026-08-31" : symbol === "ROBO" ? "운용자산/상위 편입비중 기준일: 2026-11-13 · 30일 SEC 수익률·PER·PBR 공식 최신값 미확인" : "운용자산/수익률 기준일: 2026-09-10"}<br>
         PER·PBR은 제공된 공식 자료에서 최신 수치가 확인되지 않으면 추정하지 않습니다. ETF의 SEC 수익률과 분배금 수익률은 미래 배당을 보장하지 않습니다.<br>
         <a href="${f.source}" target="_blank" rel="noopener noreferrer" style="color:#8db8ff">발행사 공식 자료 열기</a>
       </div>`;
@@ -2819,7 +2834,7 @@ function recommendationDetailsHtml(
               </div>
 
               ${
-                ["SMH", "SOXX", "MORT"].includes(String(item.ticker || "").toUpperCase())
+                ["SMH", "SOXX", "ROBO", "MORT"].includes(String(item.ticker || "").toUpperCase())
                   ? renderEtfFundamentalPanel(item.ticker)
                   : ""
               }
@@ -3096,7 +3111,7 @@ function recommendationDetailsHtml(
                 ${escapeHtml(details.etfScoreNote || "ETF 유형별 참고점수입니다.")} ${details.etfScoreDataDate ? "기준일: " + escapeHtml(details.etfScoreDataDate) : ""}
               </div>` : ""}
             ${
-              ["SMH", "SOXX", "MORT"].includes(String(item.ticker || "").toUpperCase())
+              ["SMH", "SOXX", "ROBO", "MORT"].includes(String(item.ticker || "").toUpperCase())
                 ? renderEtfFundamentalPanel(item.ticker)
                 : `
                   <div class="detail-title">🔎 실제 사용된 재무 데이터</div>
@@ -3898,7 +3913,7 @@ function recommendationDetailsHtml(
 
             <div class="holding-extra">
               <span>${priceLabel} ${money(price)}</span>
-              <span>${["SMH", "SOXX"].includes(String(item.ticker || "").toUpperCase()) ? "편입종목 기준일" : "시세 조회시각"} ${["SMH", "SOXX"].includes(String(item.ticker || "").toUpperCase()) ? ((getEtfHoldingsRecord(item.ticker) || {}).holdings_date || "기준일 미확인") : (market.sourceDate || item.updatedAt || "조회시각 미확인")}</span>
+              <span>${["SMH", "SOXX", "ROBO"].includes(String(item.ticker || "").toUpperCase()) ? "편입종목 기준일" : "시세 조회시각"} ${["SMH", "SOXX", "ROBO"].includes(String(item.ticker || "").toUpperCase()) ? ((getEtfHoldingsRecord(item.ticker) || {}).holdings_date || "기준일 미확인") : (market.sourceDate || item.updatedAt || "조회시각 미확인")}</span>
               <span>평균 ${money(item.avgPrice)}</span>
               <span>수량 ${numberFormat(item.quantity)}</span>
               <span>목표금액 ${money(targetValue)}</span>
@@ -4902,11 +4917,16 @@ function recommendationDetailsHtml(
 
     const smh = getEtfHoldingsRecord("SMH");
     const soxx = getEtfHoldingsRecord("SOXX");
-    if (!smh && !soxx) {
+    const robo = getEtfHoldingsRecord("ROBO");
+    if (!smh && !soxx && !robo) {
       element.textContent = "SMH·SOXX 편입종목 기준일: 데이터를 불러오지 못했습니다.";
       return;
     }
-    element.textContent = `ETF 편입종목 기준일 — SMH: ${formatDate(smh && smh.holdings_date)} · SOXX: ${formatDate(soxx && soxx.holdings_date)}`;
+    const parts = [];
+    if (smh) parts.push(`SMH: ${formatDate(smh && smh.holdings_date)}`);
+    if (soxx) parts.push(`SOXX: ${formatDate(soxx && soxx.holdings_date)}`);
+    if (robo) parts.push(`ROBO: ${formatDate(robo && robo.holdings_date)}`);
+    element.textContent = `ETF 편입종목 기준일 — ${parts.join(" · ")}`;
   }
 
   function getEtfHoldingsRecord(ticker) {
@@ -5872,7 +5892,7 @@ function recommendationDetailsHtml(
   /* =========================================================
      ETF 추천점수
      일반 ETF는 역할별 기본점수를 유지합니다.
-     SMH/SOXX/MORT는 발행사 프로필의 실제 수치를 공식화한 산식으로 평가합니다.
+     SMH/SOXX/ROBO/MORT는 발행사 프로필의 실제 수치를 공식화한 산식으로 평가합니다.
      주의: 프로필 수치는 현재 정적 스냅샷이며 실시간 자동 갱신 데이터가 아닙니다.
   ========================================================= */
 
@@ -5952,7 +5972,7 @@ function recommendationDetailsHtml(
   function getEtfCalculatedScore(ticker) {
     const symbol = String(ticker || "").toUpperCase();
     const p = ETF_FUNDAMENTAL_PROFILES[symbol];
-    if (!p || !["SMH", "SOXX", "MORT"].includes(symbol)) return null;
+    if (!p || !["SMH", "SOXX", "ROBO", "MORT"].includes(symbol)) return null;
 
     const assetsText = String(p.assets || "");
     let assetsB = null;
@@ -5962,7 +5982,7 @@ function recommendationDetailsHtml(
     const secYield = parseEtfMetric(p.secYield);
     const pe = parseEtfMetric(p.pe);
     const pb = parseEtfMetric(p.pb);
-    const weighted = ["SMH", "SOXX"].includes(symbol) ? getEtfWeightedFundamentals(symbol) : null;
+    const weighted = ["SMH", "SOXX", "ROBO"].includes(symbol) ? getEtfWeightedFundamentals(symbol) : null;
     const liveHoldings = getEtfHoldingsRecord(symbol);
     const holdingRows = liveHoldings ? liveHoldings.holdings.filter(h => h && Number.isFinite(Number(h.weight_pct)) && Number(h.weight_pct) > 0) : [];
     const topRows = holdingRows.slice().sort((a, b) => Number(b.weight_pct) - Number(a.weight_pct));
@@ -5980,7 +6000,7 @@ function recommendationDetailsHtml(
       components.push("보수 " + (feePoints >= 0 ? "+" : "") + feePoints.toFixed(1));
     }
 
-    if (symbol === "SOXX" || symbol === "SMH") {
+    if (symbol === "SOXX" || symbol === "SMH" || symbol === "ROBO") {
       if (weighted && weighted.matchedTickers > 0) {
         const a = weighted.averages;
         // 편입비중 가중평균 실적 기반 보조점수. 각 지표는 점수 변동폭을 제한합니다.
