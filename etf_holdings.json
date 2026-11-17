@@ -1,11 +1,11 @@
 {
-  "updated_at": "2026-11-17T04:46:00.337684+00:00",
+  "updated_at": "2026-11-17T04:47:14.368430+00:00",
   "source": "Official VanEck/iShares/ROBO Global holdings downloads",
   "data": {
     "SMH": {
       "source_url": "https://www.vaneck.com/us/en/investments/semiconductor-etf-smh/downloads/holdings/",
       "holdings_date": "2026-11-13",
-      "retrieved_at": "2026-11-17T04:45:57.716849+00:00",
+      "retrieved_at": "2026-11-17T04:47:11.499425+00:00",
       "holdings": [
         {
           "ticker": "NVDA",
@@ -114,7 +114,7 @@
     "SOXX": {
       "source_url": "https://www.ishares.com/us/products/239705/ishares-semiconductor-etf/latest-holdings.csv",
       "holdings_date": "2026-11-13",
-      "retrieved_at": "2026-11-17T04:45:59.329770+00:00",
+      "retrieved_at": "2026-11-17T04:47:12.632162+00:00",
       "holdings": [
         {
           "ticker": "AMD",
@@ -251,7 +251,7 @@
     "ROBO": {
       "source_url": "https://www.roboglobaletfs.com/api/cms/holdings",
       "holdings_date": "2026-11-13",
-      "retrieved_at": "2026-11-17T04:46:00.337658+00:00",
+      "retrieved_at": "2026-11-17T04:47:14.368386+00:00",
       "holdings": [
         {
           "ticker": "ISRG",
