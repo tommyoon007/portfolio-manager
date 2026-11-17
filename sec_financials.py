@@ -5,6 +5,7 @@ import time
 import math
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from urllib.parse import quote
 
 import requests
 
@@ -375,6 +376,133 @@ def plausible_ratio(numerator, denominator, lower=-100.0, upper=100.0):
     return value
 
 
+def plausible_multiple(value, lower=0.0, upper=None):
+    """Return a valuation multiple only when it is positive and inside a plausible band."""
+    if value is None:
+        return None
+    if not math.isfinite(value) or value <= lower:
+        return None
+    if upper is not None and value > upper:
+        return None
+    return value
+
+
+# --- Yahoo Finance 시세·베타 (API 키 불필요) ---------------------------------
+# SEC XBRL에는 가격이 없어 시가총액·PER·PSR·EV/EBITDA·베타를 만들 수 없습니다.
+# Yahoo chart API에서 시세와 주간 종가를 받아 보완하되, 실패한 티커는 결측으로 두고
+# 전체 수집은 계속 진행합니다.
+YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart'
+YAHOO_HEADERS = {
+    'User-Agent': (
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+    ),
+    'Accept': 'application/json',
+}
+BENCHMARK_SYMBOL = '^GSPC'
+BETA_MIN_WEEKS = 52
+
+
+def yahoo_symbol(ticker):
+    """Yahoo 표기: 클래스주 BRK.B → BRK-B."""
+    return str(ticker or '').strip().upper().replace('.', '-')
+
+
+def yahoo_chart(symbol, timeout=(3, 6)):
+    url = f'{YAHOO_CHART}/{quote(symbol)}?range=5y&interval=1wk'
+    r = requests.get(url, headers=YAHOO_HEADERS, timeout=timeout)
+    if r.status_code != 200:
+        raise RuntimeError(f'Yahoo HTTP {r.status_code}')
+    payload = r.json()
+    chart = payload.get('chart') or {}
+    if chart.get('error'):
+        raise RuntimeError(f"Yahoo error: {chart.get('error')}")
+    results = chart.get('result') or []
+    if not results:
+        raise RuntimeError('Yahoo returned no result')
+    return results[0]
+
+
+def yahoo_week_closes(node):
+    """주간 종가 {날짜: 종가}. 배당 조정(adjclose)이 있으면 그것을 씁니다."""
+    stamps = node.get('timestamp') or []
+    indicators = node.get('indicators') or {}
+    series = None
+    for key in ('adjclose', 'quote'):
+        block = indicators.get(key) or []
+        if block and isinstance(block[0], dict):
+            values = block[0].get('adjclose') if key == 'adjclose' else block[0].get('close')
+            if values:
+                series = values
+                break
+    if not stamps or not series:
+        return {}
+    out = {}
+    for stamp, value in zip(stamps, series):
+        price = num(value)
+        if price is None or price <= 0:
+            continue
+        try:
+            day = datetime.fromtimestamp(int(stamp), timezone.utc).date()
+        except Exception:
+            continue
+        out[day] = price
+    return out
+
+
+def yahoo_snapshot(ticker, attempts=2):
+    """(현재가, 주간 종가)를 반환. 실패하면 None (예외를 밖으로 던지지 않음)."""
+    symbol = yahoo_symbol(ticker)
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            node = yahoo_chart(symbol)
+            meta = node.get('meta') or {}
+            closes = yahoo_week_closes(node)
+            price = num(meta.get('regularMarketPrice'))
+            if price is None or price <= 0:
+                price = closes[max(closes)] if closes else None
+            return {'symbol': symbol, 'price': price, 'closes': closes}
+        except Exception as exc:
+            last_error = exc
+            time.sleep(min(1 + attempt, 3))
+    print(f'WARNING {ticker}: Yahoo 시세를 가져오지 못했습니다 — {last_error}')
+    return None
+
+
+def beta_vs_benchmark(stock_closes, benchmark_closes):
+    """주간 수익률 5년 베타 = Cov(종목, S&P500) / Var(S&P500)."""
+    if not stock_closes or not benchmark_closes:
+        return None
+    dates = sorted(set(stock_closes) & set(benchmark_closes))
+    if len(dates) < BETA_MIN_WEEKS + 1:
+        return None
+    stock_returns, market_returns = [], []
+    for prev, cur in zip(dates, dates[1:]):
+        s0, s1 = stock_closes[prev], stock_closes[cur]
+        m0, m1 = benchmark_closes[prev], benchmark_closes[cur]
+        if min(s0, s1, m0, m1) <= 0:
+            continue
+        stock_returns.append(s1 / s0 - 1.0)
+        market_returns.append(m1 / m0 - 1.0)
+    if len(stock_returns) < BETA_MIN_WEEKS:
+        return None
+    n = len(stock_returns)
+    mean_stock = sum(stock_returns) / n
+    mean_market = sum(market_returns) / n
+    covariance = sum(
+        (s - mean_stock) * (m - mean_market)
+        for s, m in zip(stock_returns, market_returns)
+    ) / n
+    variance = sum((m - mean_market) ** 2 for m in market_returns) / n
+    if variance <= 0:
+        return None
+    beta = covariance / variance
+    if not math.isfinite(beta) or beta <= 0 or beta > 5.0:
+        return None
+    return beta
+
+
 def plausible_growth(current, prior, lower=-95.0, upper=500.0):
     """Reject growth rates that are mathematically possible but too unstable for ranking."""
     if current is None or prior is None or prior <= 0:
@@ -412,9 +540,28 @@ def build_company(ticker, cik, payload):
         ('us-gaap', ['OperatingIncomeLoss']),
         ('ifrs-full', ['OperatingProfitLoss']),
     ])
+    # SEC XBRL 실제 태그명은 InterestExpenseNonoperating입니다. 과거 코드의
+    # InterestExpenseNonOperating(대문자 O) 철자 때문에 이 태그를 쓰는 기업
+    # (MRK, MSFT, NVDA, KLAC 등)의 이자비용이 통째로 누락됐습니다.
     interest_arr = arr_for(facts_all, [
-        ('us-gaap', ['InterestExpenseNonOperating', 'InterestExpenseNonOperatingAndOperating', 'InterestAndDebtExpense']),
+        ('us-gaap', [
+            'InterestExpenseNonoperating',
+            'InterestExpenseNonOperating',
+            'InterestExpenseNonoperatingAndOperating',
+            'InterestExpenseNonOperatingAndOperating',
+            'InterestAndDebtExpense',
+            'InterestExpense',
+        ]),
         ('ifrs-full', ['FinanceCosts', 'InterestExpense']),
+    ])
+    # 영업이익(OperatingIncomeLoss)을 공시하지 않는 기업의 보완용 세전이익
+    pretax_arr = arr_for(facts_all, [
+        ('us-gaap', [
+            'IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest',
+            'IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments',
+            'IncomeLossFromContinuingOperationsBeforeIncomeTaxes',
+        ]),
+        ('ifrs-full', ['ProfitLossBeforeTax']),
     ])
     da_arr = arr_for(facts_all, [
         ('us-gaap', ['DepreciationDepletionAndAmortization', 'DepreciationDepletionAndAmortizationPropertyPlantAndEquipment']),
@@ -429,6 +576,44 @@ def build_company(ticker, cik, payload):
     opinc_ttm, opinc_asof = fresh_ttm(ticker, '영업이익', opinc_arr)
     interest_ttm, interest_asof = fresh_ttm(ticker, '이자비용', interest_arr)
     da_ttm, da_asof = fresh_ttm(ticker, '감가상각', da_arr)
+
+    # 영업이익을 공시하지 않는 기업(MRK 등)은 세전이익 + 이자비용(양수 가산)으로 보완합니다.
+    opinc_source = 'OperatingIncomeLoss' if opinc_ttm is not None else None
+    if opinc_ttm is None:
+        pretax_ttm, pretax_asof = fresh_ttm(ticker, '세전이익', pretax_arr)
+        if pretax_ttm is not None:
+            interest_addback = abs(interest_ttm) if interest_ttm is not None else 0.0
+            opinc_ttm = pretax_ttm + interest_addback
+            opinc_asof = pretax_asof
+            opinc_source = 'pretax_income_plus_interest'
+            print(
+                f'NOTE {ticker}: OperatingIncomeLoss가 없어 세전이익 '
+                f'{pretax_ttm:,.0f} + 이자비용 {interest_addback:,.0f} = '
+                f'{opinc_ttm:,.0f}로 영업이익을 보완했습니다.'
+            )
+
+    # 감가상각 태그가 오래됐거나 없는 기업은 감가상각비(Depreciation) + 상각비를 합산해 보완합니다.
+    dep_arr = arr_for(facts_all, [
+        ('us-gaap', ['Depreciation']),
+        ('ifrs-full', ['DepreciationExpense']),
+    ])
+    dep_ttm, dep_asof = fresh_ttm(ticker, '감가상각비', dep_arr)
+    if dep_ttm is not None and da_ttm is None:
+        am_arr = arr_for(facts_all, [
+            ('us-gaap', ['AdjustmentForAmortization', 'AmortizationOfIntangibleAssets']),
+            ('ifrs-full', ['AmortisationExpense']),
+        ])
+        am_ttm, am_asof = fresh_ttm(ticker, '상각비', am_arr)
+        components = abs(dep_ttm) + (abs(am_ttm) if am_ttm is not None else 0.0)
+        if components > 0:
+            print(
+                f'NOTE {ticker}: 감가상각을 세부 항목으로 보완했습니다 '
+                f'(감가상각비 {abs(dep_ttm):,.0f}'
+                + (f' + 상각비 {abs(am_ttm):,.0f}' if am_ttm is not None else '')
+                + f' = {components:,.0f}).'
+            )
+            da_ttm = components
+            da_asof = max(d for d in (dep_asof, am_asof) if d) if (am_asof or dep_asof) else dep_asof
     ebitda = (opinc_ttm + abs(da_ttm)) if opinc_ttm is not None and da_ttm is not None else None
 
     # 기록에 남길 실제 재무 기준일 (사용한 값들 중 가장 최근 기간말)
@@ -538,11 +723,80 @@ def build_company(ticker, cik, payload):
         'Cash': cash,
         '__source': 'SEC EDGAR XBRL Companyfacts',
         '__cik': cik,
+        '__operatingIncomeSource': opinc_source,
         '__asOf': as_of,
         '__sharesAsOf': shares_asof,
         '__sharesSource': shares_source,
         '__updatedAt': datetime.now(timezone.utc).isoformat(),
     }
+
+
+def usable_shares(ticker, record):
+    """시가총액 계산에 쓸 수 있는 발행주식수만 돌려줍니다.
+
+    오래된 주식수(V: 2010년 값)나 1주 같은 비정상 값으로 시가총액을 만들면
+    PER·PSR이 수십 배 틀어지므로, 3년 넘은 기준일과 너무 작은 값은 쓰지 않습니다.
+    """
+    shares = num(record.get('SharesOutstanding'))
+    if shares is None or shares < 10000:
+        return None
+    as_of = to_date(record.get('__sharesAsOf'))
+    if as_of is not None:
+        age = (datetime.now(timezone.utc).date() - as_of).days
+        if age > 1095:
+            print(
+                f'WARNING {ticker}: 발행주식수 기준일 {as_of}이 {age}일 전이라 '
+                '시가총액·PER·PSR·EV/EBITDA를 계산하지 않습니다.'
+            )
+            return None
+    return shares
+
+
+def enrich_market_fields(ticker, record, benchmark_closes):
+    """Yahoo 시세로 시가총액·PER·PSR·EV/EBITDA·베타를 보탭니다. 실패해도 예외를 던지지 않습니다."""
+    snapshot = yahoo_snapshot(ticker)
+    if not snapshot:
+        return False
+
+    price = num(snapshot.get('price'))
+    shares = usable_shares(ticker, record)
+    market_cap = price * shares if price and shares and price > 0 else None
+
+    net_income = num(record.get('NetIncomeTTM'))
+    revenue = num(record.get('RevenueTTM'))
+    ebitda = num(record.get('EBITDA'))
+    debt = num(record.get('TotalDebt')) or 0.0
+    cash = num(record.get('Cash')) or 0.0
+
+    pe = plausible_multiple(
+        market_cap / net_income if market_cap and net_income and net_income > 0 else None,
+        0.0, 1000.0,
+    )
+    psr = plausible_multiple(
+        market_cap / revenue if market_cap and revenue and revenue > 0 else None,
+        0.0, 100.0,
+    )
+    enterprise_value = market_cap + debt - cash if market_cap is not None else None
+    ev_ebitda = plausible_multiple(
+        enterprise_value / ebitda if enterprise_value and ebitda and ebitda > 0 else None,
+        0.0, 300.0,
+    )
+    beta = beta_vs_benchmark(snapshot.get('closes') or {}, benchmark_closes)
+
+    record['MarketCapitalization'] = market_cap
+    record['PERatio'] = pe
+    record['PriceToSalesRatioTTM'] = psr
+    record['EVToEBITDA'] = ev_ebitda
+    record['Beta'] = beta
+    record['__price'] = price
+    record['__priceSource'] = 'Yahoo Finance chart API'
+
+    if all(v is None for v in (market_cap, pe, psr, ev_ebitda, beta)):
+        print(f'WARNING {ticker}: Yahoo 시세는 받았지만 계산 가능한 지표가 없습니다.')
+        return False
+    if beta is None and benchmark_closes:
+        print(f'WARNING {ticker}: 베타를 계산할 주간 수익률이 부족합니다.')
+    return True
 
 
 def load_etf_holding_tickers():
@@ -659,6 +913,14 @@ def main():
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    # 기준지수(^GSPC)는 실행 시작에 한 번만 받아 둡니다. 실패해도 베타만 결측됩니다.
+    benchmark_snapshot = yahoo_snapshot(BENCHMARK_SYMBOL)
+    benchmark_closes = (benchmark_snapshot or {}).get('closes') or {}
+    if benchmark_closes:
+        print(f'Yahoo 기준지수 주간 종가 {len(benchmark_closes)}개를 받았습니다.')
+    else:
+        print('WARNING: 기준지수(^GSPC) 시세를 받지 못해 베타는 계산하지 않습니다.')
+
     def fetch_one(item):
         ticker, cik = item['ticker'], item['cik']
         url = f'{COMMON}/api/xbrl/companyfacts/CIK{cik}.json'
@@ -666,8 +928,7 @@ def main():
             time.sleep(0.15)  # SEC 초당 10회 제한을 넘지 않도록 간격을 둡니다.
             facts = get_json(url)
             record = build_company(ticker, cik, facts)
-            clean = {k: v for k, v in record.items() if v is not None or k.startswith('__')}
-            return ticker, clean, None
+            return ticker, record, None
         except Exception as exc:
             return ticker, None, str(exc)
 
@@ -693,6 +954,41 @@ def main():
             'Check the SEC_CONTACT_EMAIL secret and the HTTP errors above.'
         )
 
+    # 시세 보강은 SEC 요청과 섞이지 않도록 순차로 진행합니다.
+    # 티커 하나가 실패하거나 늦어져도 전체 실행이 멈추지 않도록 예외와 시간 상한을 둡니다.
+    market_ok = 0
+    market_failed = []
+    market_deadline = time.time() + 600
+    for item in requested:
+        ticker = item['ticker']
+        record = result.get(ticker)
+        if not isinstance(record, dict):
+            continue
+        if time.time() > market_deadline:
+            market_failed.append(ticker)
+            print(f'WARNING {ticker}: 시세 보강 시간 상한을 넘어 건너뜁니다.')
+            continue
+        try:
+            if enrich_market_fields(ticker, record, benchmark_closes):
+                market_ok += 1
+            else:
+                market_failed.append(ticker)
+        except Exception as exc:
+            market_failed.append(ticker)
+            print(f'WARNING {ticker}: 시세 지표 계산 실패 — {exc}')
+        time.sleep(0.1)
+    failed_note = ''
+    if market_failed:
+        failed_note = ' (' + ', '.join(sorted(market_failed)) + ')'
+    print(f'Yahoo 시세 보강: {market_ok}개 적용, {len(market_failed)}개 미적용{failed_note}')
+
+    # 결측(None) 필드는 파일에 남기지 않습니다. 시세 보강 뒤에 정리합니다.
+    result = {
+        ticker: {k: v for k, v in record.items() if v is not None or k.startswith('__')}
+        for ticker, record in result.items()
+        if isinstance(record, dict)
+    }
+
     payload = {
         'updated_at': datetime.now(timezone.utc).isoformat(),
         'source': 'SEC EDGAR XBRL Companyfacts',
@@ -705,6 +1001,9 @@ def main():
             'fresh_successful_records': fresh_successes,
             'total_cached_records': len(result),
             'failed_tickers': len(previous_failures),
+            'market_metrics_applied': market_ok,
+            'market_metrics_unavailable': len(market_failed),
+            'beta_benchmark_weeks': len(benchmark_closes),
         },
     }
     OUT.write_text(json.dumps(payload, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
