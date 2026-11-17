@@ -3271,12 +3271,17 @@ function recommendationDetailsHtml(
   }
 
   function getTargetCashPercent() {
-    const value = Number(localStorage.getItem(TARGET_CASH_KEY));
+    // localStorage 값이 없으면 Number(null)이 0이 되어 기본값(10%)이 무시되던 문제를 고칩니다.
+    const raw = localStorage.getItem(TARGET_CASH_KEY);
+    if (raw === null || String(raw).trim() === "") return DEFAULT_TARGET_CASH;
+    const value = Number(raw);
     return Number.isFinite(value) && value >= 0 ? Math.min(100, value) : DEFAULT_TARGET_CASH;
   }
 
   function getTargetUnallocatedPercent() {
-    const value = Number(localStorage.getItem(TARGET_UNALLOCATED_KEY));
+    const raw = localStorage.getItem(TARGET_UNALLOCATED_KEY);
+    if (raw === null || String(raw).trim() === "") return DEFAULT_TARGET_UNALLOCATED;
+    const value = Number(raw);
     return Number.isFinite(value) && value >= 0 ? Math.min(100, value) : DEFAULT_TARGET_UNALLOCATED;
   }
 
@@ -6114,8 +6119,12 @@ function recommendationDetailsHtml(
   }
 
   function getRecommendationMaxWeight(item, fallbackMax = 30) {
-    if (item && (item.assetType === "ETF" || item.assetType === "BOND_ETF")) {
-      return Math.min(fallbackMax, getEtfMaxRecommendationWeight(item.ticker, item.assetType));
+    if (!item) return fallbackMax;
+    // scoredItems 항목은 { item, score, ... } 형태이므로 실제 종목/티커를 꺼내 씁니다.
+    const ticker = (item.item && item.item.ticker) || item.ticker;
+    const assetType = item.assetType || (item.item && item.item.assetType);
+    if (assetType === "ETF" || assetType === "BOND_ETF") {
+      return Math.min(fallbackMax, getEtfMaxRecommendationWeight(ticker, assetType));
     }
     return fallbackMax;
   }
@@ -7099,7 +7108,25 @@ function recommendationDetailsHtml(
      - HTTP 429는 1회 재시도 후 Alpha Vantage를 제한적으로 fallback
      - Alpha Vantage fallback은 한 번의 업데이트에서 최대 5종목만 사용
        (무료 25 requests/day를 보호하기 위함)
+     - 모든 시세 요청은 12초 타임아웃으로 무한 대기를 막습니다.
   ========================================================= */
+
+  const PRICE_FETCH_TIMEOUT_MS = 12000;
+
+  async function fetchWithTimeout(url, options = {}, timeoutMs = PRICE_FETCH_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...(options || {}), signal: controller.signal });
+    } catch (error) {
+      if (error && error.name === "AbortError") {
+        throw new Error("시세 요청 시간 초과(" + Math.round(timeoutMs / 1000) + "초)");
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   async function getAlphaDailyPrice(ticker) {
     const apiKey = localStorage.getItem(API_KEY_STORAGE);
@@ -7111,7 +7138,7 @@ function recommendationDetailsHtml(
       "&outputsize=compact" +
       "&apikey=" + encodeURIComponent(apiKey);
 
-    const response = await fetch(url);
+    const response = await fetchWithTimeout(url);
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
@@ -7146,44 +7173,12 @@ function recommendationDetailsHtml(
     throw new Error("Alpha Vantage 유효 종가가 없습니다.");
   }
 
-  // 무료 Yahoo chart endpoint: Twelve Data / Alpha Vantage가 실패할 때의
-  // 종목별 종가 보조 경로. 별도 API key나 유료 구독은 사용하지 않습니다.
-  async function getYahooDailyPrice(ticker) {
-    const url = "https://query1.finance.yahoo.com/v8/finance/chart/" +
-      encodeURIComponent(ticker) + "?range=5d&interval=1d";
-    const response = await fetch(url);
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error("Yahoo Finance HTTP " + response.status);
-
-    const result = payload && payload.chart && payload.chart.result &&
-      payload.chart.result[0];
-    const quotes = result && result.indicators && result.indicators.quote &&
-      result.indicators.quote[0];
-    const closes = quotes && Array.isArray(quotes.close) ? quotes.close : [];
-    const timestamps = result && Array.isArray(result.timestamp) ? result.timestamp : [];
-
-    for (let i = closes.length - 1; i >= 0; i--) {
-      const price = Number(closes[i]);
-      if (Number.isFinite(price) && price > 0) {
-        const date = timestamps[i]
-          ? new Date(timestamps[i] * 1000).toISOString().slice(0, 10)
-          : new Date().toISOString().slice(0, 10);
-        return {
-          price, date, status: "CLOSE",
-          label: "최근 종가 (Yahoo Finance 무료)",
-          source: "yahoo"
-        };
-      }
-    }
-    throw new Error("Yahoo Finance 유효 종가 없음");
-  }
-
   async function requestTwelveBatch(chunk, apiKey) {
     const url = "https://api.twelvedata.com/price" +
       "?symbol=" + encodeURIComponent(chunk.join(",")) +
       "&apikey=" + encodeURIComponent(apiKey);
 
-    const response = await fetch(url);
+    const response = await fetchWithTimeout(url);
     const data = await response.json().catch(() => ({}));
     return { response, data };
   }
@@ -7311,17 +7306,6 @@ function recommendationDetailsHtml(
           results[ticker] = await getAlphaDailyPrice(ticker);
         } catch (fallbackError) {
           console.error("Alpha fallback failed", ticker, fallbackError);
-        }
-      }
-
-      // 앞선 공급처에서 실패한 종목은 Yahoo 무료 종가로 최종 보조 조회합니다.
-      for (const ticker of chunk) {
-        if (results[ticker]) continue;
-        try {
-          updateProgress(`무료 Yahoo 시세 보조조회 — ${ticker}`);
-          results[ticker] = await getYahooDailyPrice(ticker);
-        } catch (yahooError) {
-          console.warn("Yahoo Finance fallback failed", ticker, yahooError);
         }
       }
 
@@ -7517,12 +7501,12 @@ function recommendationDetailsHtml(
 
   async function refreshPrices() {
     if (holdings.length === 0) { alert("먼저 종목을 추가하세요."); return; }
-    // Twelve Data 키가 없어도 Alpha Vantage/Yahoo 종가 보조 경로를 시도합니다.
+    // Twelve Data 키가 없어도 Alpha Vantage 종가 보조 경로를 시도합니다.
 
     const status = document.getElementById("updateStatus");
     const button = document.getElementById("refreshPricesButton");
     if (button) button.disabled = true;
-    status.className = "status loading";
+    if (status) status.className = "status loading";
 
     const activeHoldings = holdings.filter(item =>
       item && typeof item.ticker === "string" && /^[A-Z0-9.\-]{1,10}$/.test(item.ticker) && Number(item.quantity) > 0 && Number(item.avgPrice) > 0
@@ -7534,10 +7518,12 @@ function recommendationDetailsHtml(
     let failedBatches = 0;
     let alphaFallbacks = 0;
     let cacheHits = 0;
+    // try 블록 안에서만 선언하면 아래 결과 요약에서 ReferenceError가 나므로 바깥에 둡니다.
+    let response = null;
 
     try {
-      const response = await getBatchPrices(tickers, status, true);
-      const results = response.results || {};
+      response = await getBatchPrices(tickers, status, true);
+      const results = (response && response.results) || {};
       calls = response.calls || 0;
       failedBatches = response.failedBatches || 0;
       alphaFallbacks = response.alphaFallbacks || 0;
@@ -7574,30 +7560,37 @@ function recommendationDetailsHtml(
       console.error(error);
       activeHoldings.forEach(item => { item.priceError = error && error.message ? error.message : "시세 조회 실패"; });
       failed = activeHoldings.length;
+    } finally {
+      // 오류가 나도 버튼은 반드시 다시 누를 수 있어야 합니다.
+      if (button) button.disabled = false;
     }
 
-    saveHoldings();
-    if (success > 0) {
-      lastUpdatedAt = new Date().toISOString();
-      localStorage.setItem(LAST_UPDATED_STORAGE, lastUpdatedAt);
+    try {
+      saveHoldings();
+      if (success > 0) {
+        lastUpdatedAt = new Date().toISOString();
+        localStorage.setItem(LAST_UPDATED_STORAGE, lastUpdatedAt);
+      }
+      localStorage.setItem(PRICE_CACHE_KEY, JSON.stringify(priceCache));
+      renderLastUpdated();
+      renderPortfolio();
+    } catch (renderError) {
+      console.error("시세 결과 반영 실패", renderError);
     }
-    localStorage.setItem(PRICE_CACHE_KEY, JSON.stringify(priceCache));
-    renderLastUpdated();
-    renderPortfolio();
 
-    status.className = success > 0 ? "status" : "status negative";
-    const errorItems = holdings.filter(item => item.priceError).slice(0, 3).map(item => item.ticker + " — " + item.priceError);
-    const sourceCounts = response && response.sourceCounts ? response.sourceCounts : {};
-    const twelveCount = sourceCounts.twelvedata || 0;
-    const alphaCount = sourceCounts.alphavantage || 0;
-    const yahooCount = sourceCounts.yahoo || 0;
-    const cacheCount = sourceCounts.cache || 0;
-    let message = `시세 조회 결과 — 성공 ${success}개 / 실패 ${failed}개\n실제 공급처: Twelve Data ${twelveCount}개 · Alpha Vantage ${alphaCount}개 · Yahoo ${yahooCount}개 · 캐시 ${cacheCount}개`;
-    if (!localStorage.getItem(TWELVE_DATA_KEY_STORAGE)) message += " / Twelve Data 키 없음(무료 보조조회 시도)";
-    if (failedBatches) message += ` / 실패 배치 ${failedBatches}개`;
-    if (errorItems.length) message += "\n" + errorItems.join("\n");
-    status.textContent = message;
-    if (button) button.disabled = false;
+    if (status) {
+      status.className = success > 0 ? "status" : "status negative";
+      const errorItems = holdings.filter(item => item.priceError).slice(0, 3).map(item => item.ticker + " — " + item.priceError);
+      const sourceCounts = response && response.sourceCounts ? response.sourceCounts : {};
+      const twelveCount = sourceCounts.twelvedata || 0;
+      const alphaCount = sourceCounts.alphavantage || 0;
+      const cacheCount = sourceCounts.cache || 0;
+      let message = `시세 조회 결과 — 성공 ${success}개 / 실패 ${failed}개\n실제 공급처: Twelve Data ${twelveCount}개 · Alpha Vantage ${alphaCount}개 · 캐시 ${cacheCount}개`;
+      if (!localStorage.getItem(TWELVE_DATA_KEY_STORAGE)) message += " / Twelve Data 키 없음(무료 보조조회 시도)";
+      if (failedBatches) message += ` / 실패 배치 ${failedBatches}개`;
+      if (errorItems.length) message += "\n" + errorItems.join("\n");
+      status.textContent = message;
+    }
   }
 
   /* =========================================================
