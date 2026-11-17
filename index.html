@@ -1266,6 +1266,27 @@
       Twelve Data API Key가 저장되지 않았습니다.
     </div>
 
+    <div class="api-row" style="margin-top:10px;">
+
+      <input
+        id="githubToken"
+        type="password"
+        placeholder="GitHub 토큰 (종목 자동 동기화용)"
+      >
+
+      <button onclick="saveGithubToken()">
+        GitHub 토큰 저장
+      </button>
+
+    </div>
+
+    <div
+      id="githubTokenStatus"
+      class="status"
+    >
+      GitHub 토큰이 저장되지 않았습니다.
+    </div>
+
     <div class="notice">
 
       API Key는 코드에 포함하지 않고 현재 사용하는
@@ -1727,6 +1748,20 @@
   const TWELVE_DATA_KEY_STORAGE =
     "portfolio_manager_twelve_data_key_v1";
 
+  // 종목 변경 시 sec_tickers.json 자동 동기화에 쓰는 GitHub Personal Access Token.
+  // 코드에는 넣지 않고 이 브라우저의 LocalStorage에만 보관합니다.
+  const GITHUB_TOKEN_STORAGE =
+    "portfolio_manager_github_token_v1";
+
+  const SEC_TICKERS_CONTENTS_URL =
+    "https://api.github.com/repos/tommyoon007/portfolio-manager/contents/sec_tickers.json";
+
+  const SEC_TICKERS_DISPATCH_URL =
+    "https://api.github.com/repos/tommyoon007/portfolio-manager/actions/workflows/update-sec-financials.yml/dispatches";
+
+  const SEC_TICKERS_COMMIT_MESSAGE =
+    "Sync sec_tickers.json from dashboard";
+
   const LAST_UPDATED_STORAGE =
     "portfolio_manager_last_updated_v1";
 
@@ -2054,6 +2089,29 @@
 
     }
 
+
+    const githubToken =
+      localStorage.getItem(
+        GITHUB_TOKEN_STORAGE
+      );
+
+    if (githubToken) {
+
+      const githubInput =
+        document.getElementById(
+          "githubToken"
+        );
+
+      if (githubInput) {
+        githubInput.value = githubToken;
+      }
+
+      setGithubTokenStatus(
+        "GitHub 토큰이 저장되어 있습니다. 종목 추가·삭제 시 sec_tickers.json을 자동 동기화합니다."
+      );
+
+    }
+
   }
 
 
@@ -2186,6 +2244,287 @@
       "twelveDataStatus"
     ).textContent =
       "Twelve Data API Key가 저장되었습니다.";
+
+  }
+
+
+  /* =========================================================
+     GitHub 토큰 저장 / 표시
+  ========================================================= */
+
+  function getGithubToken() {
+    return (localStorage.getItem(GITHUB_TOKEN_STORAGE) || "").trim();
+  }
+
+  function setGithubTokenStatus(message, isLoading) {
+    const element = document.getElementById("githubTokenStatus");
+    if (!element) return;
+    element.className = isLoading ? "status loading" : "status";
+    element.textContent = message;
+  }
+
+  function saveGithubToken() {
+
+    const input =
+      document.getElementById("githubToken");
+
+    const token =
+      input ? input.value.trim() : "";
+
+    if (!token) {
+
+      localStorage.removeItem(GITHUB_TOKEN_STORAGE);
+
+      if (input) input.value = "";
+
+      setGithubTokenStatus(
+        "GitHub 토큰이 삭제되었습니다. 종목 변경은 GitHub에 자동 동기화하지 않습니다."
+      );
+
+      return;
+
+    }
+
+    localStorage.setItem(GITHUB_TOKEN_STORAGE, token);
+
+    setGithubTokenStatus(
+      "GitHub 토큰이 저장되었습니다. 종목 추가·삭제 시 sec_tickers.json을 자동 동기화합니다."
+    );
+
+  }
+
+
+  /* =========================================================
+     sec_tickers.json 자동 동기화 (GitHub Contents API)
+     - 종목 추가·삭제 시 백그라운드로 실행하며 대시보드 동작을 막지 않습니다.
+     - 토큰이 없으면 아무 요청도 보내지 않습니다.
+  ========================================================= */
+
+  let secTickersSyncChain = Promise.resolve();
+
+  function getDashboardSecTickers() {
+
+    if (!Array.isArray(holdings) || holdings.length === 0) {
+      return [];
+    }
+
+    const TICKER_PATTERN = /^[A-Z0-9.\-]{1,10}$/;
+
+    const tickers =
+      holdings
+        .map(item => String((item && item.ticker) || "").trim().toUpperCase())
+        .filter(ticker => TICKER_PATTERN.test(ticker));
+
+    return [...new Set(tickers)].sort();
+
+  }
+
+  function encodeBase64Utf8(text) {
+
+    const bytes = new TextEncoder().encode(String(text));
+
+    let binary = "";
+
+    bytes.forEach(byte => {
+      binary += String.fromCharCode(byte);
+    });
+
+    return btoa(binary);
+
+  }
+
+  function decodeBase64Utf8(encoded) {
+
+    const binary = atob(String(encoded || "").replace(/\s/g, ""));
+
+    const bytes = new Uint8Array(binary.length);
+
+    for (let index = 0; index < binary.length; index++) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+
+    return new TextDecoder().decode(bytes);
+
+  }
+
+  function getGithubHeaders(token) {
+
+    return {
+      Authorization: "Bearer " + token,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28"
+    };
+
+  }
+
+  function requestSecTickersSync() {
+
+    if (!getGithubToken()) return;
+
+    if (!Array.isArray(holdings) || holdings.length === 0) return;
+
+    // 연속 변경 시 sha 충돌을 막기 위해 순서대로 실행하고, UI는 기다리지 않습니다.
+    secTickersSyncChain = secTickersSyncChain
+      .then(() => syncSecTickersToGithub())
+      .catch(error => {
+        console.warn("sec_tickers.json 동기화 실패:", error);
+      });
+
+  }
+
+  async function dispatchSecFinancialsWorkflow(headers) {
+
+    try {
+
+      const response = await fetch(SEC_TICKERS_DISPATCH_URL, {
+        method: "POST",
+        headers: Object.assign({}, headers, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ ref: "main" })
+      });
+
+      if (response.ok) return "ok";
+
+      if (response.status === 403 || response.status === 404) return "forbidden";
+
+      return "failed";
+
+    } catch (error) {
+
+      console.warn("SEC 재무 수집 실행 요청 실패:", error);
+
+      return "failed";
+
+    }
+
+  }
+
+  async function syncSecTickersToGithub() {
+
+    const token = getGithubToken();
+
+    if (!token) return;
+
+    const tickers = getDashboardSecTickers();
+
+    if (tickers.length === 0) return;
+
+    const headers = getGithubHeaders(token);
+
+    setGithubTokenStatus("sec_tickers.json 동기화 중...", true);
+
+    try {
+
+      const getResponse = await fetch(
+        SEC_TICKERS_CONTENTS_URL + "?ref=main",
+        { headers: headers, cache: "no-store" }
+      );
+
+      if (getResponse.status === 401) {
+        throw new Error("GitHub 토큰이 유효하지 않습니다. 토큰을 다시 확인하세요.");
+      }
+
+      if (getResponse.status === 403) {
+        throw new Error("GitHub 토큰에 저장소 읽기 권한이 없습니다 (HTTP 403).");
+      }
+
+      if (getResponse.status !== 404 && !getResponse.ok) {
+        throw new Error("sec_tickers.json 조회 실패 (HTTP " + getResponse.status + ")");
+      }
+
+      let sha = null;
+      let currentTickers = [];
+
+      if (getResponse.status !== 404) {
+
+        const file = await getResponse.json();
+
+        sha = file.sha || null;
+
+        try {
+
+          const decoded = JSON.parse(decodeBase64Utf8(file.content || ""));
+
+          if (Array.isArray(decoded)) {
+            currentTickers = [...new Set(
+              decoded
+                .map(value => String(value || "").trim().toUpperCase())
+                .filter(Boolean)
+            )].sort();
+          }
+
+        } catch (parseError) {
+
+          console.warn("sec_tickers.json 파싱 실패:", parseError);
+
+        }
+
+      }
+
+      const isSameList =
+        currentTickers.length === tickers.length &&
+        tickers.every((ticker, index) => ticker === currentTickers[index]);
+
+      if (isSameList) {
+        setGithubTokenStatus(
+          "sec_tickers.json이 이미 대시보드 종목(" + tickers.length + "개)과 같습니다."
+        );
+        return;
+      }
+
+      const putBody = {
+        message: SEC_TICKERS_COMMIT_MESSAGE,
+        content: encodeBase64Utf8(JSON.stringify(tickers, null, 2) + "\n"),
+        branch: "main"
+      };
+
+      if (sha) putBody.sha = sha;
+
+      const putResponse = await fetch(SEC_TICKERS_CONTENTS_URL, {
+        method: "PUT",
+        headers: Object.assign({}, headers, { "Content-Type": "application/json" }),
+        body: JSON.stringify(putBody)
+      });
+
+      if (!putResponse.ok) {
+
+        let detail = "";
+
+        try {
+          const errorBody = await putResponse.json();
+          if (errorBody && errorBody.message) detail = " · " + errorBody.message;
+        } catch (parseError) {
+          detail = "";
+        }
+
+        throw new Error("sec_tickers.json 커밋 실패 (HTTP " + putResponse.status + ")" + detail);
+
+      }
+
+      const dispatchResult = await dispatchSecFinancialsWorkflow(headers);
+
+      if (dispatchResult === "ok") {
+        setGithubTokenStatus(
+          "✅ sec_tickers.json 커밋 완료 (" + tickers.length + "개 종목) · SEC 재무 수집을 시작했습니다."
+        );
+      } else if (dispatchResult === "forbidden") {
+        setGithubTokenStatus(
+          "✅ sec_tickers.json 커밋 완료 (" + tickers.length + "개 종목) · 토큰에 Actions 권한이 없어 즉시 실행은 건너뛰었습니다. 다음 정기 실행에서 반영됩니다."
+        );
+      } else {
+        setGithubTokenStatus(
+          "✅ sec_tickers.json 커밋 완료 (" + tickers.length + "개 종목) · 재무 수집 실행 요청만 실패했습니다."
+        );
+      }
+
+    } catch (error) {
+
+      console.warn("sec_tickers.json 동기화 실패:", error);
+
+      setGithubTokenStatus(
+        "⚠️ " + ((error && error.message) || "sec_tickers.json 동기화에 실패했습니다.") + " (대시보드 저장은 정상입니다.)"
+      );
+
+    }
 
   }
 
@@ -2431,6 +2770,10 @@
 
 
       renderPortfolio();
+
+
+      // 종목 추가 후 sec_tickers.json을 백그라운드에서 동기화합니다.
+      requestSecTickersSync();
 
 
     } finally {
@@ -3219,6 +3562,10 @@ function recommendationDetailsHtml(
     saveHoldings();
 
     renderPortfolio();
+
+
+    // 종목 삭제 후 sec_tickers.json을 백그라운드에서 동기화합니다.
+    requestSecTickersSync();
 
   }
 
