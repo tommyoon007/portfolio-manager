@@ -6589,8 +6589,10 @@ function recommendationDetailsHtml(
 
   /* =========================================================
      추천 점수 → 비중 변환
-     종목당 최대 30% 제한.
-     30% 상한으로 100%를 채울 수 없으면 미배분을 현금 영역으로 유지합니다.
+     종목당 최대 30%, ETF는 유형별 상한(10~25%)을 적용합니다.
+     상한에 걸린 종목의 초과분은 상한 여유가 있는 종목에 점수 비례로
+     다시 배분해, 목표 현금·미배분을 뺀 투자 비중을 정확히 채웁니다.
+     (모든 후보가 상한에 걸려 더 담을 수 없을 때만 미배분으로 남깁니다.)
   ========================================================= */
 
   function convertScoresToWeights(scoredItems) {
@@ -6630,164 +6632,124 @@ function recommendationDetailsHtml(
 
   // ETF/개별주 최대비중을 적용한 뒤에도
   // 최종 추천비중의 합계가 반드시 "투자자산 배분 가능비중"을 넘지 않도록 합니다.
+  // 상한에 걸린 종목의 초과분은 상한 여유가 있는 종목에 점수 비례로 반복 배분하고
+  // (water-filling), 마지막 0.01% 단위는 최대 잔여 방식으로 채워 합계를 정확히 맞춥니다.
   function capAndRedistributeRecommendationWeights(scoredItems, investable, fallbackMax) {
-    let excess = 0;
+    if (!Array.isArray(scoredItems) || scoredItems.length === 0) return;
 
-    scoredItems.forEach(item => {
-      const maxWeight = getRecommendationMaxWeight(item, fallbackMax);
-      if (item.weight > maxWeight) {
-        excess += item.weight - maxWeight;
-        item.weight = maxWeight;
+    const target = Math.max(0, Number(investable) || 0);
+    const caps = scoredItems.map(item =>
+      Math.max(0, getRecommendationMaxWeight(item, fallbackMax))
+    );
+    const scores = scoredItems.map(item => Math.max(0, Number(item.score) || 0));
+
+    let weights = scoredItems.map(item => Math.max(0, Number(item.weight) || 0));
+    const given = weights.reduce((sum, value) => sum + value, 0);
+
+    // 1) 들어온 비중을 목표 합계에 맞춰 비례 조정합니다.
+    if (given > 0) {
+      const factor = target / given;
+      weights = weights.map(value => value * factor);
+    } else if (scores.some(score => score > 0)) {
+      const scoreTotal = scores.reduce((sum, score) => sum + score, 0);
+      weights = scores.map(score => (score / scoreTotal) * target);
+    } else {
+      weights = scores.map(() => target / scores.length);
+    }
+
+    // 2) 상한 초과분을 상한 여유가 있는 종목에 점수 비례로 재배분합니다.
+    for (let pass = 0; pass < 60; pass++) {
+      let excess = 0;
+      weights = weights.map((value, index) => {
+        if (value > caps[index]) {
+          excess += value - caps[index];
+          return caps[index];
+        }
+        return value;
+      });
+
+      if (excess <= 1e-9) break;
+
+      const open = [];
+      for (let index = 0; index < weights.length; index++) {
+        if (weights[index] < caps[index] - 1e-9) open.push(index);
       }
-    });
 
-    // 상한에 걸려 생긴 초과분을 아직 상한에 도달하지 않은 종목에 재배분
-    for (let pass = 0; pass < 30 && excess > 0.000001; pass++) {
-      const available = scoredItems.filter(item =>
-        item.weight <
-        getRecommendationMaxWeight(item, fallbackMax) - 0.000001
-      );
+      // 모든 후보가 상한이면 더 담을 곳이 없으므로 남은 비중은 미배분으로 둡니다.
+      if (!open.length) break;
 
-      if (!available.length) break;
-
-      const availableScore = available.reduce(
-        (sum, item) => sum + Math.max(0, Number(item.score) || 0),
-        0
-      );
-
+      const openScore = open.reduce((sum, index) => sum + scores[index], 0);
       let distributed = 0;
 
-      available.forEach(item => {
-        const share =
-          availableScore > 0
-            ? Math.max(0, Number(item.score) || 0) / availableScore
-            : 1 / available.length;
-
-        const requested = excess * share;
-        const room =
-          getRecommendationMaxWeight(item, fallbackMax) - item.weight;
-
-        const actual = Math.min(room, requested);
-
-        item.weight += actual;
+      open.forEach(index => {
+        const share = openScore > 0 ? scores[index] / openScore : 1 / open.length;
+        const room = caps[index] - weights[index];
+        const actual = Math.min(room, excess * share);
+        weights[index] += actual;
         distributed += actual;
       });
 
-      excess -= distributed;
-
-      if (distributed <= 0.000001) break;
+      if (distributed <= 1e-9) break;
     }
 
-    normalizeRecommendationWeights(scoredItems, investable, fallbackMax);
-  }
-
-  function normalizeRecommendationWeights(scoredItems, investable, fallbackMax) {
-    // 먼저 숫자/상한을 다시 정리
-    scoredItems.forEach(item => {
-      const maxWeight = getRecommendationMaxWeight(item, fallbackMax);
-      item.weight = Math.max(
-        0,
-        Math.min(maxWeight, Number(item.weight) || 0)
-      );
-    });
-
-    // 반올림 전 합계를 계산한다.
-    let total = scoredItems.reduce(
-      (sum, item) => sum + item.weight,
-      0
+    // 3) 0.01% 단위로 반올림하되 합계가 목표와 같아지도록 보정합니다.
+    const capCents = caps.map(cap => Math.round(cap * 100));
+    const cents = weights.map((value, index) =>
+      Math.max(0, Math.min(capCents[index], Math.round(value * 100)))
     );
 
-    // 투자 가능 비중을 초과하면 비례 축소한다.
-    if (total > investable + 0.000001 && total > 0) {
-      const factor = investable / total;
-      scoredItems.forEach(item => {
-        item.weight *= factor;
-      });
-      total = investable;
-    }
+    let remainder = Math.round(target * 100) - cents.reduce((sum, value) => sum + value, 0);
 
-    // 소수점 2자리 반올림
-    scoredItems.forEach(item => {
-      item.weight = Number(item.weight.toFixed(2));
-    });
+    if (remainder > 0) {
+      // 모자란 0.01% 단위는 상한 여유가 있는 종목에 점수가 높은 순으로 돌아가며 채웁니다.
+      const order = cents
+        .map((_value, index) => index)
+        .filter(index => cents[index] < capCents[index])
+        .sort((a, b) => scores[b] - scores[a]);
 
-    total = scoredItems.reduce(
-      (sum, item) => sum + item.weight,
-      0
-    );
-
-    // ★ 핵심 수정:
-    // 기존 코드는 여기서 100 - roundedTotal을 사용하여
-    // 목표 현금/미배분 비중까지 다시 종목에 넣어버렸습니다.
-    // 반드시 "investable - roundedTotal"만 보정해야 합니다.
-    let difference = Number(
-      (investable - total).toFixed(2)
-    );
-
-    if (Math.abs(difference) >= 0.01) {
-      const candidates = [...scoredItems].sort(
-        (a, b) =>
-          (Number(b.score) || 0) - (Number(a.score) || 0)
-      );
-
-      for (const item of candidates) {
-        if (Math.abs(difference) < 0.01) break;
-
-        const maxWeight = getRecommendationMaxWeight(
-          item,
-          fallbackMax
-        );
-
-        if (difference > 0) {
-          const room = Math.max(
-            0,
-            maxWeight - item.weight
-          );
-
-          const add = Math.min(
-            room,
-            difference
-          );
-
-          item.weight = Number(
-            (item.weight + add).toFixed(2)
-          );
-
-          difference = Number(
-            (difference - add).toFixed(2)
-          );
-        } else {
-          const remove = Math.min(
-            item.weight,
-            Math.abs(difference)
-          );
-
-          item.weight = Number(
-            (item.weight - remove).toFixed(2)
-          );
-
-          difference = Number(
-            (difference + remove).toFixed(2)
-          );
+      let guard = 0;
+      while (remainder > 0 && order.length && guard < 100000) {
+        let moved = false;
+        for (const index of order) {
+          if (remainder <= 0) break;
+          if (cents[index] >= capCents[index]) continue;
+          cents[index] += 1;
+          remainder -= 1;
+          moved = true;
         }
+        if (!moved) break;
+        guard++;
+      }
+    } else if (remainder < 0) {
+      // 반올림으로 넘친 경우 점수가 낮은 종목부터 0.01%씩 덜어냅니다.
+      const order = cents
+        .map((_value, index) => index)
+        .sort((a, b) => scores[a] - scores[b]);
+
+      let need = -remainder;
+      let guard = 0;
+      while (need > 0 && guard < 100000) {
+        let moved = false;
+        for (const index of order) {
+          if (need <= 0) break;
+          if (cents[index] <= 0) continue;
+          cents[index] -= 1;
+          need -= 1;
+          moved = true;
+        }
+        if (!moved) break;
+        guard++;
       }
     }
 
-    // 마지막 안전장치: 절대로 투자 가능 비중을 넘기지 않는다.
-    const finalTotal = scoredItems.reduce(
-      (sum, item) => sum + item.weight,
-      0
-    );
+    scoredItems.forEach((item, index) => {
+      item.weight = cents[index] / 100;
+    });
+  }
 
-    if (finalTotal > investable + 0.000001 && finalTotal > 0) {
-      const factor = investable / finalTotal;
-
-      scoredItems.forEach(item => {
-        item.weight = Number(
-          (item.weight * factor).toFixed(2)
-        );
-      });
-    }
+  // 합계·상한 정리만 필요할 때 쓰는 별칭입니다.
+  function normalizeRecommendationWeights(scoredItems, investable, fallbackMax) {
+    capAndRedistributeRecommendationWeights(scoredItems, investable, fallbackMax);
   }
 
 

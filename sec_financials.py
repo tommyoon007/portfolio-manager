@@ -258,58 +258,15 @@ def fact_latest(arr):
     return rows[-1]['val'] if rows else None
 
 
-def fact_first_latest(facts_all, taxonomies, tags, unit='USD', duration=False):
-    """First usable concept from the preferred tag aliases and taxonomies.
-
-    Returns (value, raw array, basis date).
-    """
-    for taxonomy in taxonomies:
-        base = facts_all.get(taxonomy, {})
-        for tag in tags:
-            obj = base.get(tag, {})
-            arr = obj.get('units', {}).get(unit, [])
-            rows = duration_facts(arr) if duration else instant_facts(arr)
-            if rows:
-                return rows[-1]['val'], arr, rows[-1].get('end')
-    return None, [], None
-
-
-def arr_for(facts_all, taxonomy_tags, unit='USD'):
-    """Pick the alias tag that actually holds the most recent data.
-
-    태그 목록 순서대로 첫 번째 비어있지 않은 값을 쓰면, 기업이 새 태그로
-    보고를 옮긴 뒤에도 옛 태그(수년 전 값)가 선택될 수 있습니다. 그래서
-    가장 최근 end(같으면 최근 filed)를 가진 태그를 고르고, 날짜가 같으면
-    목록에 먼저 적힌 별칭을 우선합니다.
-    """
-    candidates = []
-    for taxonomy_order, (taxonomy, tags) in enumerate(taxonomy_tags):
-        base = facts_all.get(taxonomy, {})
-        for tag_order, tag in enumerate(tags):
-            arr = base.get(tag, {}).get('units', {}).get(unit, [])
-            if not arr:
-                continue
-            ends = [
-                r['end'] for r in arr
-                if r.get('end') and num(r.get('val')) is not None
-            ]
-            if not ends:
-                continue
-            latest_end = max(ends)
-            latest_filed = max(
-                (str(r.get('filed') or '') for r in arr
-                 if r.get('end') == latest_end and num(r.get('val')) is not None),
-                default='',
-            )
-            candidates.append(((latest_end, latest_filed, -taxonomy_order, -tag_order), arr))
-    if not candidates:
-        return []
-    candidates.sort(key=lambda c: c[0], reverse=True)
-    return candidates[0][1]
-
-
 # 이보다 오래된 재무 데이터는 현재 실적으로 쓰지 않고 결측 처리합니다.
 MAX_DATA_AGE_DAYS = 400
+# 20-F/40-F만 내는 외국계 발행인은 연차보고서를 1년에 한 번 냅니다. 그래서 최근
+# 연간 실적이 400일을 조금 넘는 것이 정상이고, 이 경우에만 730일까지 허용합니다.
+# 그보다 오래된 데이터(수년 전 값)는 지금처럼 결측 처리합니다.
+FOREIGN_ANNUAL_DATA_AGE_DAYS = 730
+ANNUAL_REPORT_FORMS = {'20-F', '40-F', '20-F/A', '40-F/A'}
+# 이보다 오래된 발행주식수는 희석률 비교의 기준으로 쓰지 않습니다.
+MAX_STALE_SHARES_DAYS = 550
 
 
 def days_old(end):
@@ -319,19 +276,168 @@ def days_old(end):
     return (datetime.now(timezone.utc).date() - value).days
 
 
-def fresh_ttm(ticker, label, arr):
-    """TTM 값과 기준일. 400일 이상 지난 데이터는 경고 후 결측 처리합니다."""
-    value, basis = ttm_with_basis(arr)
+def data_age_limit(facts_all):
+    """이 기업에 적용할 신선도 기준(일).
+
+    20-F/40-F 연차보고서를 내는 외국계 발행인은 730일, 미국 내국 기업(10-K/10-Q)은
+    400일입니다. IFRS 태그를 쓰면 외국계 발행인으로 바로 판단하고, 미국 태그로
+    보고하는 외국계(XPEV 등)는 접수 보고서 양식(form)을 표본으로 확인합니다.
+    """
+    if 'ifrs-full' in facts_all:
+        return FOREIGN_ANNUAL_DATA_AGE_DAYS
+    checked = 0
+    for taxonomy in facts_all.values():
+        for tag in taxonomy.values():
+            for arr in (tag.get('units') or {}).values():
+                for row in arr:
+                    if str(row.get('form') or '') in ANNUAL_REPORT_FORMS:
+                        return FOREIGN_ANNUAL_DATA_AGE_DAYS
+                    checked += 1
+                    if checked >= 2000:
+                        return MAX_DATA_AGE_DAYS
+    return MAX_DATA_AGE_DAYS
+
+
+# --- 통화(unit) 인식과 환산 ---------------------------------------------------
+# SEC companyfacts의 units는 USD만 있지 않습니다. 20-F를 내는 외국계 기업은 자국
+# 통화(TWD·CNY·EUR 등)로 태그하고, 필요하면 최신 연도만 USD로 편의 환산해 함께
+# 올립니다. 통화를 구분하지 않고 'USD' 배열만 찾으면 TSM·UMC·XPEV 같은 종목의
+# 매출·순이익이 통째로 비어 보입니다. 그래서 값이 가장 최근인 통화 배열을 고르고,
+# USD가 아니면 그 기준일의 환율로 USD로 환산합니다. 이렇게 해야 시가총액(USD)과
+# PER·PSR·EV/EBITDA를 같은 통화로 계산할 수 있습니다.
+ISO_CURRENCY = re.compile(r'^[A-Z]{3}$')
+FX_SERIES = {}
+FX_WARNED = set()
+
+
+def is_currency_unit(unit):
+    return bool(ISO_CURRENCY.match(str(unit or '')))
+
+
+def monetary_series(facts_all, taxonomy_tags, duration=False):
+    """태그 별칭과 통화 단위를 모두 비교해 후보를 최신순으로 돌려줍니다.
+
+    정렬 기준: 최근 기간말 → 최근 접수일 → USD 우선 → 목록에 먼저 적힌 태그.
+    각 후보는 (정렬키, 원본 배열, 통화 단위, 태그 이름)입니다.
+    """
+    candidates = []
+    for taxonomy_order, (taxonomy, tags) in enumerate(taxonomy_tags):
+        base = facts_all.get(taxonomy, {})
+        for tag_order, tag in enumerate(tags):
+            units = (base.get(tag) or {}).get('units') or {}
+            for unit, arr in units.items():
+                if not is_currency_unit(unit):
+                    continue
+                rows = duration_facts(arr) if duration else instant_facts(arr)
+                if not rows:
+                    continue
+                latest = rows[-1]
+                candidates.append((
+                    (latest['end'], str(latest.get('filed') or ''),
+                     1 if unit == 'USD' else 0, -taxonomy_order, -tag_order),
+                    arr, unit, f'{taxonomy}:{tag}',
+                ))
+    candidates.sort(key=lambda c: c[0], reverse=True)
+    return candidates
+
+
+def fx_rates(currency):
+    """{날짜: 1 {currency}당 USD} 월별 시세. 받지 못하면 None."""
+    if currency in FX_SERIES:
+        return FX_SERIES[currency]
+    rates = None
+    try:
+        node = yahoo_chart(f'{currency}USD=X', range_='10y', interval='1mo')
+        rates = yahoo_week_closes(node) or None
+    except Exception as exc:  # noqa: BLE001 - 환율은 없으면 결측으로 두고 계속합니다.
+        if currency not in FX_WARNED:
+            FX_WARNED.add(currency)
+            print(f'WARNING: {currency}→USD 환율을 받지 못했습니다 — {exc}')
+    FX_SERIES[currency] = rates
+    return rates
+
+
+def fx_rate(currency, asof=None):
+    """기준일과 가장 가까운(±62일) 환율. 없으면 가장 최근 환율. 실패하면 None."""
+    if currency == 'USD':
+        return 1.0
+    rates = fx_rates(currency)
+    if not rates:
+        return None
+    day = to_date(asof)
+    if day is not None:
+        nearest = min(rates, key=lambda d: abs((d - day).days))
+        if abs((nearest - day).days) <= 62:
+            return rates[nearest]
+    return rates[max(rates)]
+
+
+def to_usd(ticker, label, value, unit, asof):
+    """금액을 USD로 환산합니다. 환율이 없으면 USD 지표에서 제외합니다."""
     if value is None:
-        return None, None
-    age = days_old(basis)
-    if age is not None and age > MAX_DATA_AGE_DAYS:
+        return None
+    if unit == 'USD':
+        return value
+    rate = fx_rate(unit, asof)
+    if rate is None:
         print(
-            f'WARNING {ticker}: {label}의 최근 기준일 {basis}이 {age}일 지나 '
-            f'{MAX_DATA_AGE_DAYS}일 기준을 넘었습니다. 결측 처리합니다.'
+            f'WARNING {ticker}: {label}이 {unit} 표시인데 환율이 없어 '
+            'USD 기준 지표에서 제외합니다.'
         )
-        return None, None
-    return value, basis
+        return None
+    print(
+        f'NOTE {ticker}: {label} {value:,.0f} {unit} → {value * rate:,.0f} USD '
+        f'(환율 1 {unit} = {rate:.6g} USD, {asof} 기준)'
+    )
+    return value * rate
+
+
+def ttm_usd(ticker, label, facts_all, taxonomy_tags, age_limit=None):
+    """가장 최근 통화 배열로 TTM을 만들고 USD로 돌려줍니다.
+
+    반환: (값, 기준일, 사용한 원본 배열, 태그 이름).
+    값을 만들 수 없으면 (None, None, 최신 배열, 태그 이름).
+    """
+    limit = age_limit or MAX_DATA_AGE_DAYS
+    candidates = monetary_series(facts_all, taxonomy_tags, duration=True)
+    fallback, fallback_source = ([], None)
+    if candidates:
+        fallback, fallback_source = candidates[0][1], candidates[0][3]
+    for _key, arr, unit, source in candidates:
+        value, basis = ttm_with_basis(arr)
+        if value is None:
+            continue
+        age = days_old(basis)
+        if age is not None and age > limit:
+            print(
+                f'WARNING {ticker}: {label}의 최근 기준일 {basis}이 {age}일 지나 '
+                f'{limit}일 기준을 넘었습니다. 결측 처리합니다.'
+            )
+            return None, None, arr, source
+        if age is not None and age > MAX_DATA_AGE_DAYS:
+            print(
+                f'NOTE {ticker}: {label} 값은 연 1회 공시(20-F) 기업의 최근 연간 '
+                f'실적입니다 (기준일 {basis}, {age}일 전).'
+            )
+        usd = to_usd(ticker, label, value, unit, basis)
+        if usd is None:
+            continue
+        return usd, basis, arr, source
+    return None, None, fallback, fallback_source
+
+
+def instant_usd(ticker, label, facts_all, taxonomy_tags):
+    """잔액(instant) 항목을 가장 최근 통화 배열에서 가져와 USD로 돌려줍니다."""
+    for _key, arr, unit, source in monetary_series(facts_all, taxonomy_tags, duration=False):
+        rows = instant_facts(arr)
+        if not rows:
+            continue
+        latest = rows[-1]
+        usd = to_usd(ticker, label, latest['val'], unit, latest['end'])
+        if usd is None:
+            continue
+        return usd, latest['end'], source
+    return None, None, None
 
 
 def latest_shares(facts_all):
@@ -364,6 +470,69 @@ def latest_shares(facts_all):
     if best is None:
         return None, None, None
     return best[1], best[2], best[3]
+
+
+def share_rows(facts_all, taxonomy, tags):
+    """가중평균주식수 기간 사실을 {(시작, 종료): 행}으로 모음 (같은 기간은 최근 접수 우선)."""
+    out = {}
+    for tag in tags:
+        arr = (facts_all.get(taxonomy, {}).get(tag) or {}).get('units', {}).get('shares', [])
+        for row in arr:
+            if not row.get('end') or not row.get('start') or num(row.get('val')) is None:
+                continue
+            key = (row.get('start'), row['end'])
+            if key not in out or str(row.get('filed') or '') >= str(out[key].get('filed') or ''):
+                out[key] = row
+    return out
+
+
+def diluted_shares_outstanding(facts_all, shares):
+    """기본 가중평균 대비 희석 가중평균의 비율로 희석주식수를 구합니다.
+
+    화면의 희석차이는 DilutedSharesOutstanding ÷ SharesOutstanding(기말 발행주식수)으로
+    계산합니다. 기말 주식수와 희석 가중평균을 그대로 나누면 기간 기준이 달라 주식
+    발행·소각만으로도 희석차이가 생깁니다. 그래서 같은 기간의
+    (희석 가중평균 ÷ 기본 가중평균) 비율을 기말 주식수에 곱해 기준을 맞춥니다.
+
+    반환: (희석주식수, 기준일, 희석률(%)). 믿을 만한 기간이 없으면 (None, None, None).
+    """
+    basic = {}
+    basic.update(share_rows(facts_all, 'us-gaap', ['WeightedAverageNumberOfSharesOutstandingBasic']))
+    basic.update(share_rows(facts_all, 'ifrs-full', ['WeightedAverageShares']))
+    diluted = {}
+    diluted.update(share_rows(facts_all, 'us-gaap', [
+        'WeightedAverageNumberOfDilutedSharesOutstanding',
+        'WeightedAverageNumberOfShareOutstandingBasicAndDiluted',
+    ]))
+    diluted.update(share_rows(facts_all, 'ifrs-full', ['AdjustedWeightedAverageShares']))
+
+    common = set(basic) & set(diluted)
+    if not common:
+        return None, None, None
+
+    def span(key):
+        start, end = to_date(key[0]), to_date(key[1])
+        return (end - start).days if start and end else 0
+
+    # 최근 기간을 쓰고, 같은 기간말에 분기·누적이 함께 있으면 짧은 기간(분기)을 쓿니다.
+    # 누적 기간은 희석 효과가 상쐬되거나 0으로 보이는 경우가 있어 현재 희석률을 더 잘 보여줍니다.
+    key = max(common, key=lambda k: (k[1], -span(k)))
+    basic_val = num(basic[key]['val'])
+    diluted_val = num(diluted[key]['val'])
+    if not basic_val or basic_val <= 0 or diluted_val is None or diluted_val <= 0:
+        return None, None, None
+
+    ratio = diluted_val / basic_val
+    if not math.isfinite(ratio) or ratio < 0.5 or ratio > 2.0:
+        print(
+            f'WARNING: 희석 가중평균주식수 {diluted_val:,.0f} / 기본 가중평균주식수 '
+            f'{basic_val:,.0f} = {ratio:.3f} — 기간이 어긋난 값으로 보고 희석주식수를 '
+            '비웁니다.'
+        )
+        return None, None, None
+
+    base_shares = shares if shares and shares > 0 else basic_val
+    return base_shares * ratio, key[1], (ratio - 1.0) * 100.0
 
 
 def plausible_ratio(numerator, denominator, lower=-100.0, upper=100.0):
@@ -424,8 +593,8 @@ def yahoo_symbol(ticker):
     return str(ticker or '').strip().upper().replace('.', '-')
 
 
-def yahoo_chart(symbol, timeout=(3, 6)):
-    url = f'{YAHOO_CHART}/{quote(symbol)}?range=5y&interval=1wk'
+def yahoo_chart(symbol, timeout=(3, 6), range_='5y', interval='1wk'):
+    url = f'{YAHOO_CHART}/{quote(symbol)}?range={range_}&interval={interval}'
     r = requests.get(url, headers=YAHOO_HEADERS, timeout=timeout)
     if r.status_code != 200:
         raise RuntimeError(f'Yahoo HTTP {r.status_code}')
@@ -658,6 +827,14 @@ def plausible_growth(current, prior, lower=-95.0, upper=500.0):
 
 def build_company(ticker, cik, payload):
     facts_all = payload.get('facts', {})
+    # 20-F/40-F 연차보고서만 내는 외국계 기업은 신선도 기준을 730일로 넓힙니다.
+    age_limit = data_age_limit(facts_all)
+    if age_limit > MAX_DATA_AGE_DAYS:
+        print(
+            f'NOTE {ticker}: 20-F/40-F 연차보고서 기업이라 재무 신선도 기준을 '
+            f'{age_limit}일로 적용합니다.'
+        )
+
     tax_tags = [
         ('us-gaap', [
             'RevenueFromContractWithCustomerExcludingAssessedTax',
@@ -666,27 +843,27 @@ def build_company(ticker, cik, payload):
         ]),
         ('ifrs-full', ['Revenue', 'RevenueFromContractsWithCustomers']),
     ]
-    revenue_arr = arr_for(facts_all, tax_tags)
-    ni_arr = arr_for(facts_all, [
+    ni_tags = [
         ('us-gaap', ['NetIncomeLoss', 'ProfitLoss', 'NetIncomeLossAvailableToCommonStockholdersBasic']),
         ('ifrs-full', ['ProfitLoss', 'ProfitLossAttributableToOwnersOfParent']),
-    ])
-    ocf_arr = arr_for(facts_all, [
+    ]
+    ocf_tags = [
         ('us-gaap', ['NetCashProvidedByUsedInOperatingActivities']),
         ('ifrs-full', ['CashFlowsFromUsedInOperatingActivities']),
-    ])
-    capex_arr = arr_for(facts_all, [
+    ]
+    capex_tags = [
         ('us-gaap', ['PaymentsToAcquirePropertyPlantAndEquipment', 'PaymentsToAcquireProductiveAssets']),
         ('ifrs-full', ['PurchaseOfPropertyPlantAndEquipment', 'PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities']),
-    ])
-    opinc_arr = arr_for(facts_all, [
+    ]
+    opinc_tags = [
         ('us-gaap', ['OperatingIncomeLoss']),
-        ('ifrs-full', ['OperatingProfitLoss']),
-    ])
+        # IFRS는 영업이익을 ProfitLossFromOperatingActivities로 태그합니다(TSM·UMC 등).
+        ('ifrs-full', ['OperatingProfitLoss', 'ProfitLossFromOperatingActivities']),
+    ]
     # SEC XBRL 실제 태그명은 InterestExpenseNonoperating입니다. 과거 코드의
     # InterestExpenseNonOperating(대문자 O) 철자 때문에 이 태그를 쓰는 기업
     # (MRK, MSFT, NVDA, KLAC 등)의 이자비용이 통째로 누락됐습니다.
-    interest_arr = arr_for(facts_all, [
+    interest_tags = [
         ('us-gaap', [
             'InterestExpenseNonoperating',
             'InterestExpenseNonOperating',
@@ -696,34 +873,47 @@ def build_company(ticker, cik, payload):
             'InterestExpense',
         ]),
         ('ifrs-full', ['FinanceCosts', 'InterestExpense']),
-    ])
+    ]
     # 영업이익(OperatingIncomeLoss)을 공시하지 않는 기업의 보완용 세전이익
-    pretax_arr = arr_for(facts_all, [
+    pretax_tags = [
         ('us-gaap', [
             'IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest',
             'IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments',
             'IncomeLossFromContinuingOperationsBeforeIncomeTaxes',
         ]),
         ('ifrs-full', ['ProfitLossBeforeTax']),
-    ])
-    da_arr = arr_for(facts_all, [
+    ]
+    da_tags = [
         ('us-gaap', ['DepreciationDepletionAndAmortization', 'DepreciationDepletionAndAmortizationPropertyPlantAndEquipment']),
         ('ifrs-full', ['DepreciationAndAmortisationExpense', 'DepreciationDepletionAndAmortisationPropertyPlantAndEquipment']),
-    ])
+    ]
 
-    revenue_ttm, revenue_asof = fresh_ttm(ticker, '매출', revenue_arr)
-    ni_ttm, ni_asof = fresh_ttm(ticker, '순이익', ni_arr)
-    ocf_ttm, ocf_asof = fresh_ttm(ticker, '영업현금흐름', ocf_arr)
-    capex_ttm, capex_asof = fresh_ttm(ticker, '설비투자', capex_arr)
+    # 금액은 모두 USD로 맞춥니다. 외국계 기업이 자국 통화로 태그한 값은 기준일
+    # 환율로 환산하고, 환율을 구하지 못하면 시가총액(USD)과 섞지 않도록 비웁니다.
+    revenue_ttm, revenue_asof, revenue_arr, _revenue_src = ttm_usd(
+        ticker, '매출', facts_all, tax_tags, age_limit
+    )
+    ni_ttm, ni_asof, ni_arr, _ni_src = ttm_usd(ticker, '순이익', facts_all, ni_tags, age_limit)
+    ocf_ttm, ocf_asof, _ocf_arr, _ocf_src = ttm_usd(
+        ticker, '영업현금흐름', facts_all, ocf_tags, age_limit
+    )
+    capex_ttm, capex_asof, _capex_arr, _capex_src = ttm_usd(
+        ticker, '설비투자', facts_all, capex_tags, age_limit
+    )
     fcf = (ocf_ttm - abs(capex_ttm)) if ocf_ttm is not None and capex_ttm is not None else None
-    opinc_ttm, opinc_asof = fresh_ttm(ticker, '영업이익', opinc_arr)
-    interest_ttm, interest_asof = fresh_ttm(ticker, '이자비용', interest_arr)
-    da_ttm, da_asof = fresh_ttm(ticker, '감가상각', da_arr)
+    opinc_ttm, opinc_asof, _opinc_arr, opinc_source = ttm_usd(
+        ticker, '영업이익', facts_all, opinc_tags, age_limit
+    )
+    interest_ttm, interest_asof, _interest_arr, _interest_src = ttm_usd(
+        ticker, '이자비용', facts_all, interest_tags, age_limit
+    )
+    da_ttm, da_asof, _da_arr, _da_src = ttm_usd(ticker, '감가상각', facts_all, da_tags, age_limit)
 
     # 영업이익을 공시하지 않는 기업(MRK 등)은 세전이익 + 이자비용(양수 가산)으로 보완합니다.
-    opinc_source = 'OperatingIncomeLoss' if opinc_ttm is not None else None
     if opinc_ttm is None:
-        pretax_ttm, pretax_asof = fresh_ttm(ticker, '세전이익', pretax_arr)
+        pretax_ttm, pretax_asof, _pretax_arr, _pretax_src = ttm_usd(
+            ticker, '세전이익', facts_all, pretax_tags, age_limit
+        )
         if pretax_ttm is not None:
             interest_addback = abs(interest_ttm) if interest_ttm is not None else 0.0
             opinc_ttm = pretax_ttm + interest_addback
@@ -736,17 +926,15 @@ def build_company(ticker, cik, payload):
             )
 
     # 감가상각 태그가 오래됐거나 없는 기업은 감가상각비(Depreciation) + 상각비를 합산해 보완합니다.
-    dep_arr = arr_for(facts_all, [
+    dep_ttm, dep_asof, _dep_arr, _dep_src = ttm_usd(ticker, '감가상각비', facts_all, [
         ('us-gaap', ['Depreciation']),
         ('ifrs-full', ['DepreciationExpense']),
-    ])
-    dep_ttm, dep_asof = fresh_ttm(ticker, '감가상각비', dep_arr)
+    ], age_limit)
     if dep_ttm is not None and da_ttm is None:
-        am_arr = arr_for(facts_all, [
+        am_ttm, am_asof, _am_arr, _am_src = ttm_usd(ticker, '상각비', facts_all, [
             ('us-gaap', ['AdjustmentForAmortization', 'AmortizationOfIntangibleAssets']),
             ('ifrs-full', ['AmortisationExpense']),
-        ])
-        am_ttm, am_asof = fresh_ttm(ticker, '상각비', am_arr)
+        ], age_limit)
         components = abs(dep_ttm) + (abs(am_ttm) if am_ttm is not None else 0.0)
         if components > 0:
             print(
@@ -767,43 +955,58 @@ def build_company(ticker, cik, payload):
         ) if d
     ]
 
-    assets, _, assets_asof = fact_first_latest(facts_all, ['us-gaap'], ['Assets'])
-    liabilities, _, liabilities_asof = fact_first_latest(facts_all, ['us-gaap'], ['Liabilities'])
-    equity, _, equity_asof = fact_first_latest(facts_all, ['us-gaap'], [
-        'StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest'
+    # 잔액(instant) 항목도 통화를 구분해 USD로 맞춥니다. IFRS 태그 기업(TSM·UMC 등)은
+    # us-gaap 태그가 없으므로 두 체계를 함께 봅니다.
+    assets, assets_asof, _assets_src = instant_usd(ticker, '자산', facts_all, [
+        ('us-gaap', ['Assets']), ('ifrs-full', ['Assets']),
     ])
-    if equity is None:
-        equity, _, equity_asof = fact_first_latest(facts_all, ['ifrs-full'], ['Equity', 'EquityAttributableToOwnersOfParent'])
-
-    cash, _, cash_asof = fact_first_latest(facts_all, ['us-gaap'], [
-        'CashAndCashEquivalentsAtCarryingValue',
-        'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents',
+    liabilities, liabilities_asof, _liabilities_src = instant_usd(ticker, '부채', facts_all, [
+        ('us-gaap', ['Liabilities']), ('ifrs-full', ['Liabilities']),
     ])
-    if cash is None:
-        cash, _, cash_asof = fact_first_latest(facts_all, ['ifrs-full'], ['CashAndCashEquivalents'])
-
-    ca, _, ca_asof = fact_first_latest(facts_all, ['us-gaap'], ['AssetsCurrent'])
-    cl, _, cl_asof = fact_first_latest(facts_all, ['us-gaap'], ['LiabilitiesCurrent'])
-    if ca is None:
-        ca, _, ca_asof = fact_first_latest(facts_all, ['ifrs-full'], ['CurrentAssets'])
-    if cl is None:
-        cl, _, cl_asof = fact_first_latest(facts_all, ['ifrs-full'], ['CurrentLiabilities'])
+    equity, equity_asof, _equity_src = instant_usd(ticker, '자본', facts_all, [
+        ('us-gaap', ['StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest']),
+        ('ifrs-full', ['Equity', 'EquityAttributableToOwnersOfParent']),
+    ])
+    cash, cash_asof, _cash_src = instant_usd(ticker, '현금', facts_all, [
+        ('us-gaap', [
+            'CashAndCashEquivalentsAtCarryingValue',
+            'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents',
+        ]),
+        ('ifrs-full', ['CashAndCashEquivalents']),
+    ])
+    ca, ca_asof, _ca_src = instant_usd(ticker, '유동자산', facts_all, [
+        ('us-gaap', ['AssetsCurrent']), ('ifrs-full', ['CurrentAssets']),
+    ])
+    cl, cl_asof, _cl_src = instant_usd(ticker, '유동부채', facts_all, [
+        ('us-gaap', ['LiabilitiesCurrent']), ('ifrs-full', ['CurrentLiabilities']),
+    ])
 
     basis_dates.extend(
         d for d in (assets_asof, liabilities_asof, equity_asof, cash_asof, ca_asof, cl_asof) if d
     )
 
     # Select one alias per debt bucket to avoid double-counting synonymous tags.
-    debt_current, _, debt_current_asof = fact_first_latest(facts_all, ['us-gaap'], [
-        'LongTermDebtAndFinanceLeaseObligationsCurrent', 'LongTermDebtCurrent', 'ShortTermBorrowings', 'CommercialPaper'
+    debt_current, debt_current_asof, _dc_src = instant_usd(ticker, '단기차입금', facts_all, [
+        ('us-gaap', [
+            'LongTermDebtAndFinanceLeaseObligationsCurrent', 'LongTermDebtCurrent',
+            'ShortTermBorrowings', 'CommercialPaper',
+        ]),
+        ('ifrs-full', [
+            'CurrentPortionOfLongtermBorrowings',
+            'CurrentLoansReceivedAndCurrentPortionOfNoncurrentLoansReceived',
+            'ShorttermBorrowings', 'BorrowingsCurrent', 'LeaseLiabilitiesCurrent',
+        ]),
     ])
-    debt_noncurrent, _, debt_noncurrent_asof = fact_first_latest(facts_all, ['us-gaap'], [
-        'LongTermDebtAndFinanceLeaseObligationsNoncurrent', 'LongTermDebtNoncurrent', 'LongTermDebt'
+    debt_noncurrent, debt_noncurrent_asof, _dnc_src = instant_usd(ticker, '장기차입금', facts_all, [
+        ('us-gaap', [
+            'LongTermDebtAndFinanceLeaseObligationsNoncurrent', 'LongTermDebtNoncurrent',
+            'LongTermDebt',
+        ]),
+        ('ifrs-full', [
+            'LongtermBorrowings', 'NoncurrentPortionOfNoncurrentLoansReceived',
+            'BorrowingsNoncurrent', 'LeaseLiabilitiesNoncurrent',
+        ]),
     ])
-    if debt_current is None:
-        debt_current, _, debt_current_asof = fact_first_latest(facts_all, ['ifrs-full'], ['BorrowingsCurrent', 'LeaseLiabilitiesCurrent'])
-    if debt_noncurrent is None:
-        debt_noncurrent, _, debt_noncurrent_asof = fact_first_latest(facts_all, ['ifrs-full'], ['BorrowingsNoncurrent', 'LeaseLiabilitiesNoncurrent'])
     debt = (debt_current or 0) + (debt_noncurrent or 0) if debt_current is not None or debt_noncurrent is not None else None
     basis_dates.extend(d for d in (debt_current_asof, debt_noncurrent_asof) if d)
 
@@ -813,8 +1016,24 @@ def build_company(ticker, cik, payload):
         print(f'NOTE {ticker}: 발행주식수를 {shares_source} 기준일 {shares_asof} 값으로 보완했습니다.')
     if shares is None:
         print(f'WARNING {ticker}: 발행주식수를 찾지 못했습니다.')
-    # Do not copy basic shares into diluted shares; those are not the same metric.
-    diluted_shares = None
+
+    # 희석주식수: 기본 가중평균과 희석 가중평균을 같은 기간에서 비교해 구합니다.
+    # 기본 주식수를 그대로 복사하지 않습니다(그러면 희석차이가 항상 0이 됩니다).
+    diluted_shares, dilution_asof, dilution_ratio = None, None, None
+    shares_age = days_old(shares_asof)
+    if shares is not None and shares_age is not None and shares_age > MAX_STALE_SHARES_DAYS:
+        # V처럼 발행주식수가 수년 전 값이면 희석률 비교 자체가 극단값이 되므로 만들지 않습니다.
+        print(
+            f'WARNING {ticker}: 발행주식수 기준일 {shares_asof}이 {shares_age}일 전이라 '
+            '희석주식수를 계산하지 않습니다.'
+        )
+    else:
+        diluted_shares, dilution_asof, dilution_ratio = diluted_shares_outstanding(facts_all, shares)
+    if diluted_shares is not None:
+        print(
+            f'NOTE {ticker}: 희석주식수 {diluted_shares:,.0f} '
+            f'(기본 가중평균 대비 {dilution_ratio:+.2f}%, 기준일 {dilution_asof}).'
+        )
 
     # Cross-field consistency gate. 극단적인 비율은 기간이 어긋났거나 일회성 손실이 큰 경우를
     # 모두 포함하므로, 매출 자체는 남기고 그 비율로만 만들어지는 지표만 제거합니다.
@@ -834,7 +1053,7 @@ def build_company(ticker, cik, payload):
         print(f'WARNING {ticker}: 재무 기준일을 확인할 수 없습니다.')
     else:
         age = days_old(as_of)
-        if age is not None and age > MAX_DATA_AGE_DAYS:
+        if age is not None and age > age_limit:
             print(f'WARNING {ticker}: 재무 데이터 기준일 {as_of}이 {age}일 전입니다.')
         if shares_asof and str(shares_asof) < str(as_of):
             print(f'NOTE {ticker}: 발행주식수 기준일 {shares_asof}이 재무 기준일 {as_of}보다 앞섭니다.')
@@ -870,6 +1089,9 @@ def build_company(ticker, cik, payload):
         '__asOf': as_of,
         '__sharesAsOf': shares_asof,
         '__sharesSource': shares_source,
+        '__dilutionAsOf': dilution_asof,
+        '__dilutionRatioPercent': dilution_ratio,
+        '__dataAgeLimitDays': age_limit,
         '__updatedAt': datetime.now(timezone.utc).isoformat(),
     }
 
