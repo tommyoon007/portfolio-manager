@@ -392,15 +392,31 @@ def plausible_multiple(value, lower=0.0, upper=None):
 # Yahoo chart API에서 시세와 주간 종가를 받아 보완하되, 실패한 티커는 결측으로 두고
 # 전체 수집은 계속 진행합니다.
 YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart'
+YAHOO_QUOTE_SUMMARY = 'https://query1.finance.yahoo.com/v10/finance/quoteSummary'
+YAHOO_CRUMB_URL = 'https://query1.finance.yahoo.com/v1/test/getcrumb'
+YAHOO_COOKIE_URL = 'https://fc.yahoo.com'
+YAHOO_PAGE_URL = 'https://finance.yahoo.com/quote/SPY'
+YAHOO_UA = (
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+)
 YAHOO_HEADERS = {
-    'User-Agent': (
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-        '(KHTML, like Gecko) Chrome/124.0 Safari/537.36'
-    ),
+    'User-Agent': YAHOO_UA,
     'Accept': 'application/json',
+}
+# 쿠키·크럼을 받을 때는 브라우저가 페이지를 요청하는 것과 같은 헤더가 필요합니다.
+YAHOO_HTML_HEADERS = {
+    'User-Agent': YAHOO_UA,
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
 }
 BENCHMARK_SYMBOL = '^GSPC'
 BETA_MIN_WEEKS = 52
+
+# Yahoo 쿠키·크럼은 한 번 받아 재사용합니다(티커마다 새 세션을 만들면 차단되기 쉽습니다).
+YAHOO_AUTH_TTL = 30 * 60
+CRUMB_PATTERN = re.compile(r'^[A-Za-z0-9._%~-]{4,40}$')
+_YAHOO_AUTH = {'session': None, 'crumb': None, 'obtained': 0.0, 'failed_at': 0.0}
 
 
 def yahoo_symbol(ticker):
@@ -421,6 +437,133 @@ def yahoo_chart(symbol, timeout=(3, 6)):
     if not results:
         raise RuntimeError('Yahoo returned no result')
     return results[0]
+
+
+def yahoo_auth(force=False):
+    """Yahoo 쿠키와 크럼을 준비해 (세션, 크럼)을 돌려줍니다. 실패하면 (None, None).
+
+    fc.yahoo.com에서 A1/A3 쿠키를 받고 getcrumb로 크럼을 받습니다. 데이터센터 IP에서는
+    getcrumb가 406을 돌려주는 경우가 있어, 그때는 시세 페이지 HTML에 들어 있는 크럼을
+    대신 씁니다. 어떤 실패도 전체 실행을 멈추지 않습니다.
+    """
+    state = _YAHOO_AUTH
+    cached = state['session'] is not None and state['crumb']
+    if cached and not force and (time.time() - state['obtained']) < YAHOO_AUTH_TTL:
+        return state['session'], state['crumb']
+    # 방금 실패했다면 티커마다 같은 시도를 되풀이하지 않습니다(1분 뒤 재시도).
+    if state['failed_at'] and not force and (time.time() - state['failed_at']) < 60:
+        return None, None
+
+    crumb = None
+    last_status = None
+    for attempt in range(2):
+        session = requests.Session()
+        session.headers.update(YAHOO_HTML_HEADERS)
+        try:
+            # fc.yahoo.com은 404를 돌려주지만 그 응답에 A1/A3 쿠키가 담겨 옵니다.
+            session.get(YAHOO_COOKIE_URL, timeout=(3, 6))
+        except Exception as exc:
+            last_status = f'cookie: {exc}'
+
+        try:
+            r = session.get(YAHOO_CRUMB_URL, timeout=(3, 6))
+            last_status = f'getcrumb HTTP {r.status_code}'
+            if r.status_code == 200 and CRUMB_PATTERN.match(r.text.strip()):
+                crumb = r.text.strip()
+        except Exception as exc:
+            last_status = f'getcrumb: {exc}'
+
+        if not crumb:
+            try:
+                r = session.get(YAHOO_PAGE_URL, timeout=(4, 12))
+                last_status = f'quote page HTTP {r.status_code}'
+                if r.status_code == 200:
+                    match = re.search(r'"crumb":"([^"]{4,40})"', r.text)
+                    if match and CRUMB_PATTERN.match(match.group(1)):
+                        crumb = match.group(1)
+            except Exception as exc:
+                last_status = f'quote page: {exc}'
+
+        if crumb:
+            break
+        time.sleep(1.5)
+
+    if not crumb:
+        state.update({
+            'session': None, 'crumb': None, 'obtained': 0.0, 'failed_at': time.time(),
+        })
+        print(
+            'WARNING: Yahoo 쿠키·크럼을 받지 못해 Forward PER·PEG·실제 시가총액은 건너뜁니다 '
+            f'({last_status}).'
+        )
+        return None, None
+
+    state.update({
+        'session': session, 'crumb': crumb, 'obtained': time.time(), 'failed_at': 0.0,
+    })
+    return session, crumb
+
+
+def yahoo_quote_summary(symbol, timeout=(4, 8), retry=True):
+    """quoteSummary(summaryDetail·defaultKeyStatistics·price)를 받아옵니다.
+
+    Forward PER·PEG·실제 시가총액·베타가 들어 있습니다. 401/403(크럼 만료)과
+    429/5xx(과도 요청)는 크럼을 새로 받거나 짧게 쉬었다가 한 번만 다시 시도하고,
+    그래도 실패하면 None을 돌려줍니다(전체 수집은 계속).
+    """
+    session, crumb = yahoo_auth()
+    if not session:
+        return None
+    url = (
+        f'{YAHOO_QUOTE_SUMMARY}/{quote(symbol)}'
+        f'?modules=summaryDetail,defaultKeyStatistics,price&crumb={quote(crumb)}'
+    )
+    try:
+        r = session.get(url, headers=YAHOO_HEADERS, timeout=timeout)
+    except requests.RequestException as exc:
+        if retry:
+            time.sleep(1.0)
+            return yahoo_quote_summary(symbol, timeout, retry=False)
+        print(f'WARNING {symbol}: Yahoo quoteSummary 요청 실패 — {exc}')
+        return None
+
+    if r.status_code in (401, 403) and retry:
+        yahoo_auth(force=True)
+        time.sleep(0.5)
+        return yahoo_quote_summary(symbol, timeout, retry=False)
+    if r.status_code in (429, 500, 502, 503, 504) and retry:
+        time.sleep(2.0)
+        return yahoo_quote_summary(symbol, timeout, retry=False)
+    if r.status_code != 200:
+        print(f'WARNING {symbol}: Yahoo quoteSummary HTTP {r.status_code}')
+        return None
+
+    try:
+        payload = r.json()
+    except ValueError:
+        print(f'WARNING {symbol}: Yahoo quoteSummary 응답을 해석하지 못했습니다.')
+        return None
+    results = (payload.get('quoteSummary') or {}).get('result') or []
+    if not results or not isinstance(results[0], dict):
+        return None
+    node = results[0]
+    return {
+        'summaryDetail': node.get('summaryDetail') or {},
+        'defaultKeyStatistics': node.get('defaultKeyStatistics') or {},
+        'price': node.get('price') or {},
+    }
+
+
+def yahoo_value(modules, key):
+    """quoteSummary 값 추출. 최신 응답은 숫자, 예전 응답은 {'raw': ...} 형태입니다."""
+    for module in modules:
+        node = (module or {}).get(key)
+        if isinstance(node, dict):
+            node = node.get('raw', node.get('fmt'))
+        value = num(node)
+        if value is not None:
+            return value
+    return None
 
 
 def yahoo_week_closes(node):
@@ -753,14 +896,53 @@ def usable_shares(ticker, record):
 
 
 def enrich_market_fields(ticker, record, benchmark_closes):
-    """Yahoo 시세로 시가총액·PER·PSR·EV/EBITDA·베타를 보탭니다. 실패해도 예외를 던지지 않습니다."""
-    snapshot = yahoo_snapshot(ticker)
-    if not snapshot:
-        return False
+    """Yahoo 시세로 시가총액·PER·PSR·EV/EBITDA·베타·Forward PER·PEG를 보탭니다.
+
+    시가총액은 Yahoo quoteSummary가 준 실제 달러 시총을 우선 씁니다. SEC 발행주식수가
+    오래됐거나(V: 2010년 값) ADS 비율을 반영하지 못한 종목(TSM·UMC·ASX·XPEV)이
+    이 한 단계로 바로잡힙니다. Yahoo 값이 없을 때만 price × SEC 주식수로 계산합니다.
+    실패해도 예외를 던지지 않습니다.
+    """
+    snapshot = yahoo_snapshot(ticker) or {}
+    summary = yahoo_quote_summary(yahoo_symbol(ticker)) or {}
+    detail = summary.get('summaryDetail') or {}
+    stats = summary.get('defaultKeyStatistics') or {}
+    price_node = summary.get('price') or {}
 
     price = num(snapshot.get('price'))
-    shares = usable_shares(ticker, record)
-    market_cap = price * shares if price and shares and price > 0 else None
+    price_source = 'Yahoo Finance chart API'
+    if price is None:
+        price = num(price_node.get('regularMarketPrice'))
+        if price is not None:
+            price_source = 'Yahoo quoteSummary price.regularMarketPrice'
+
+    # 1) 시가총액: Yahoo 실제 시총 → (없을 때만) 현재가 × SEC 발행주식수
+    yahoo_cap = yahoo_value([price_node, detail], 'marketCap')
+    if yahoo_cap is not None and yahoo_cap > 0:
+        market_cap = yahoo_cap
+        cap_source = 'Yahoo quoteSummary marketCap'
+    else:
+        shares = usable_shares(ticker, record)
+        market_cap = price * shares if price and shares and price > 0 else None
+        cap_source = 'Yahoo price x SEC SharesOutstanding' if market_cap else None
+        if market_cap is not None:
+            print(f'NOTE {ticker}: Yahoo 실제 시가총액이 없어 현재가 × SEC 발행주식수로 계산했습니다.')
+    if market_cap is not None:
+        record['MarketCapitalization'] = market_cap
+
+    # 2) Forward PER·PEG (Yahoo 컨센서스 기준). 이상치는 비워 둡니다.
+    forward_pe = plausible_multiple(
+        yahoo_value([detail, stats], 'forwardPE'), 0.0, 1000.0
+    )
+    # PEG가 음수면 성장률이 음수라는 뜻이고, 화면의 PEG 밴드는 낮을수록 높은 점수를 주므로
+    # 음수를 그대로 넣으면 평가가 뒤집힙니다. 양수만 받습니다.
+    peg = plausible_multiple(
+        yahoo_value([stats, detail], 'pegRatio'), 0.0, 100.0
+    )
+    if forward_pe is not None:
+        record['ForwardPE'] = forward_pe
+    if peg is not None:
+        record['PEGRatio'] = peg
 
     net_income = num(record.get('NetIncomeTTM'))
     revenue = num(record.get('RevenueTTM'))
@@ -781,17 +963,26 @@ def enrich_market_fields(ticker, record, benchmark_closes):
         enterprise_value / ebitda if enterprise_value and ebitda and ebitda > 0 else None,
         0.0, 300.0,
     )
-    beta = beta_vs_benchmark(snapshot.get('closes') or {}, benchmark_closes)
 
-    record['MarketCapitalization'] = market_cap
+    # 3) 베타: 5년 주간 수익률 계산을 먼저 쓰고, 계산이 안 될 때만 Yahoo 베타로 보완합니다.
+    beta = beta_vs_benchmark(snapshot.get('closes') or {}, benchmark_closes)
+    if beta is None:
+        yahoo_beta = plausible_multiple(yahoo_value([detail, stats], 'beta'), 0.0, 5.0)
+        if yahoo_beta is not None:
+            beta = yahoo_beta
+            print(f'NOTE {ticker}: 주간 수익률로 베타를 계산하지 못해 Yahoo 베타 {beta:.2f}를 썼습니다.')
+
     record['PERatio'] = pe
     record['PriceToSalesRatioTTM'] = psr
     record['EVToEBITDA'] = ev_ebitda
     record['Beta'] = beta
-    record['__price'] = price
-    record['__priceSource'] = 'Yahoo Finance chart API'
+    if price is not None:
+        record['__price'] = price
+        record['__priceSource'] = price_source
+    if cap_source:
+        record['__marketCapSource'] = cap_source
 
-    if all(v is None for v in (market_cap, pe, psr, ev_ebitda, beta)):
+    if all(v is None for v in (market_cap, pe, psr, ev_ebitda, beta, forward_pe, peg)):
         print(f'WARNING {ticker}: Yahoo 시세는 받았지만 계산 가능한 지표가 없습니다.')
         return False
     if beta is None and benchmark_closes:
@@ -1003,6 +1194,9 @@ def main():
             'failed_tickers': len(previous_failures),
             'market_metrics_applied': market_ok,
             'market_metrics_unavailable': len(market_failed),
+            'market_cap_available': sum(1 for r in result.values() if num(r.get('MarketCapitalization')) is not None),
+            'forward_pe_available': sum(1 for r in result.values() if num(r.get('ForwardPE')) is not None),
+            'peg_ratio_available': sum(1 for r in result.values() if num(r.get('PEGRatio')) is not None),
             'beta_benchmark_weeks': len(benchmark_closes),
         },
     }
