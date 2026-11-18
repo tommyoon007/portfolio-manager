@@ -7658,8 +7658,8 @@ function recommendationDetailsHtml(
     const table = document.querySelector(".table-wrap table");
     if (!table) throw new Error("포트폴리오 표를 찾을 수 없습니다.");
 
-    // 표 복사 전용: 사용자가 요청한 7개 항목만 추출
-    // 종목(티커만) / 현재가(최근 종가 문구 제외) / 평균매수가 / 수량 / 수익률 / 현재비중 / 추천비중(적용 제외)
+    // 표 복사 전용: 사용자가 요청한 8개 항목만 추출
+    // 종목(티커만) / 현재가(최근 종가 문구 제외) / 평균매수가 / 수량 / 수익률 / 현재비중 / 추천비중(적용 제외) / 추천점수(점수 숫자만)
     const headers = [
       "종목",
       "현재가",
@@ -7667,7 +7667,8 @@ function recommendationDetailsHtml(
       "수량",
       "수익률",
       "현재비중",
-      "추천비중"
+      "추천비중",
+      "추천점수"
     ];
 
     const rows = [];
@@ -7690,6 +7691,8 @@ function recommendationDetailsHtml(
       const returnRate = cells[6]?.textContent.trim() || "";
       const currentWeight = cells[7]?.querySelector(".weight-number")?.textContent.trim() || cells[7]?.textContent.trim() || "";
       const recommendedWeight = cells[9]?.querySelector(".weight-number")?.textContent.trim() || cells[9]?.textContent.trim().split(/\s+/)[0] || "";
+      // 추천점수 셀에는 점수·데이터 가용률·추천 사유·버튼이 함께 있으므로 점수 숫자(.recommend-score)만 추출
+      const recommendedScore = cells[8]?.querySelector(".recommend-score")?.textContent.trim() || (cells[8]?.textContent.trim().split(/\s+/)[0] || "");
 
       if (ticker) {
         rows.push([
@@ -7699,7 +7702,8 @@ function recommendationDetailsHtml(
           quantity,
           returnRate,
           currentWeight,
-          recommendedWeight
+          recommendedWeight,
+          recommendedScore
         ]);
       }
     });
