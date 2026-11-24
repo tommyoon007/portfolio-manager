@@ -883,8 +883,15 @@ def build_company(ticker, cik, payload):
         ]),
         ('ifrs-full', ['ProfitLossBeforeTax']),
     ]
+    # V·MA처럼 감가상각을 현금흐름표에서 DepreciationAndAmortization 한 줄로만
+    # 태그하는 기업이 많습니다. 이 태그가 없으면 EBITDA·EV/EBITDA·순부채/EBITDA가
+    # 통째로 비므로, 더 넓은 DepreciationDepletionAndAmortization 다음에 별칭으로 둡니다.
     da_tags = [
-        ('us-gaap', ['DepreciationDepletionAndAmortization', 'DepreciationDepletionAndAmortizationPropertyPlantAndEquipment']),
+        ('us-gaap', [
+            'DepreciationDepletionAndAmortization',
+            'DepreciationDepletionAndAmortizationPropertyPlantAndEquipment',
+            'DepreciationAndAmortization',
+        ]),
         ('ifrs-full', ['DepreciationAndAmortisationExpense', 'DepreciationDepletionAndAmortisationPropertyPlantAndEquipment']),
     ]
 
@@ -1007,6 +1014,30 @@ def build_company(ticker, cik, payload):
             'BorrowingsNoncurrent', 'LeaseLiabilitiesNoncurrent',
         ]),
     ])
+    # DKNG처럼 장기차입금을 총액(LongTermDebt 계열) 태그 없이 구성 항목으로만 공시하는
+    # 기업은 항목을 합산해 보완합니다. 총액 태그가 잡힌 기업에 항목을 더하면 이중계상되고,
+    # 오래된 항목 사실(ILMN 2023년·MPWR 2013년)을 현재 부채로 쓰면 안 되므로,
+    # 총액이 비었고 항목이 신선도 기준 안에 있을 때만 씁니다.
+    if debt_noncurrent is None:
+        components = 0.0
+        component_asof = None
+        for label, component_tags in (
+            ('전환사채', [('us-gaap', ['ConvertibleLongTermNotesPayable'])]),
+            ('기타 장기차입금', [('us-gaap', ['OtherLongTermDebtNoncurrent'])]),
+        ):
+            value, asof, _src = instant_usd(ticker, label, facts_all, component_tags)
+            age = days_old(asof)
+            if value is None or age is None or age > MAX_DATA_AGE_DAYS:
+                continue
+            components += value
+            component_asof = max(d for d in (component_asof, asof) if d)
+        if components > 0:
+            debt_noncurrent = components
+            debt_noncurrent_asof = component_asof
+            print(
+                f'NOTE {ticker}: 장기차입금을 구성 항목 합계 {components:,.0f}로 '
+                f'보완했습니다 (기준일 {component_asof}).'
+            )
     debt = (debt_current or 0) + (debt_noncurrent or 0) if debt_current is not None or debt_noncurrent is not None else None
     basis_dates.extend(d for d in (debt_current_asof, debt_noncurrent_asof) if d)
 
@@ -1035,14 +1066,19 @@ def build_company(ticker, cik, payload):
             f'(기본 가중평균 대비 {dilution_ratio:+.2f}%, 기준일 {dilution_asof}).'
         )
 
-    # Cross-field consistency gate. 극단적인 비율은 기간이 어긋났거나 일회성 손실이 큰 경우를
-    # 모두 포함하므로, 매출 자체는 남기고 그 비율로만 만들어지는 지표만 제거합니다.
+    # Cross-field consistency gate. 극단적인 영업이익률은 기간이 어긋났거나 일회성 손실이 큰 경우를
+    # 모두 포함합니다. 그래서 영업이익률처럼 매출로 나눠 만드는 비율 지표만 비우고,
+    # 영업이익·EBITDA 같은 금액은 공시값 그대로 남깁니다. 비트코인·이더리움 공정가치
+    # 평가손익이 영업이익에 들어가는 MSTR·BMNR이나 매출이 작은 적자 성장주(ONDS·JOBY)는
+    # 실제 공시된 영업이익이 매출의 -100%를 쉽게 넘기 때문에, 금액까지 지우면
+    # OperatingIncomeTTM·EBITDA가 통째로 비어 버립니다.
     if revenue_ttm is not None and revenue_ttm > 0 and opinc_ttm is not None:
         raw_margin = opinc_ttm / revenue_ttm * 100.0
         if not math.isfinite(raw_margin) or raw_margin < -100.0 or raw_margin > 100.0:
-            print(f'WARNING {ticker}: 영업이익/매출 비율이 {raw_margin:.1f}%로 비정상입니다. 영업이익 지표만 비웁니다(매출은 유지).')
-            opinc_ttm = None
-            ebitda = None
+            print(
+                f'NOTE {ticker}: 영업이익/매출 비율이 {raw_margin:.1f}%입니다. 영업이익 금액은 '
+                '유지하고(공시값) 영업이익률 지표만 비웁니다.'
+            )
     if ni_ttm is not None and revenue_ttm is not None and revenue_ttm > 0:
         net_margin = ni_ttm / revenue_ttm * 100.0
         if not math.isfinite(net_margin) or net_margin < -100.0 or net_margin > 100.0:
@@ -1065,7 +1101,11 @@ def build_company(ticker, cik, payload):
         'OperatingIncomeTTM': opinc_ttm,
         'NetIncomeTTM': ni_ttm,
         'OperatingMarginTTM': plausible_ratio(opinc_ttm, revenue_ttm, -100.0, 100.0),
-        'ReturnOnEquityTTM': plausible_ratio(ni_ttm, equity, -200.0, 200.0),
+        # 자본이 양수인 우량주는 자사주 매입으로 자본이 얇아져 ROE가 200%를 넘기도 합니다
+        # (MA: 순이익 169.6억·자본 67.5억 달러 → 251%). 상한을 500%로 넓혀 이런 기업의
+        # ROE가 잘리지 않게 하고, 자본이 음수인 기업(MCD 등)은 plausible_ratio의
+        # '자본 > 0' 조건으로 지금처럼 계속 제외합니다.
+        'ReturnOnEquityTTM': plausible_ratio(ni_ttm, equity, -200.0, 500.0),
         'DebtToEquity': plausible_ratio(debt, equity, 0.0, 2000.0),
         'CurrentRatio': (ca / cl) if ca is not None and cl not in (None, 0) else None,
         'OperatingCashflow': ocf_ttm,
