@@ -1,204 +1,204 @@
 {
-  "updated_at": "2026-11-24T05:30:58.610712+00:00",
+  "updated_at": "2026-11-24T19:37:43.496810+00:00",
   "source": "Official VanEck/iShares/ROBO Global holdings downloads",
   "data": {
     "SMH": {
       "source_url": "https://www.vaneck.com/us/en/investments/semiconductor-etf-smh/downloads/holdings/",
-      "holdings_date": "2026-11-20",
-      "retrieved_at": "2026-11-24T05:30:56.564934+00:00",
+      "holdings_date": "2026-11-23",
+      "retrieved_at": "2026-11-24T19:37:41.146485+00:00",
       "holdings": [
         {
           "ticker": "NVDA",
-          "weight_pct": 16.21
+          "weight_pct": 18.5
         },
         {
           "ticker": "TSM",
-          "weight_pct": 9.83
-        },
-        {
-          "ticker": "AVGO",
-          "weight_pct": 6.87
+          "weight_pct": 9.74
         },
         {
           "ticker": "TXN",
-          "weight_pct": 6.55
+          "weight_pct": 6.27
+        },
+        {
+          "ticker": "AVGO",
+          "weight_pct": 6.14
         },
         {
           "ticker": "AMD",
-          "weight_pct": 5.88
+          "weight_pct": 5.45
         },
         {
           "ticker": "ADI",
-          "weight_pct": 5.38
+          "weight_pct": 5.12
         },
         {
           "ticker": "ASML",
-          "weight_pct": 4.76
-        },
-        {
-          "ticker": "QCOM",
-          "weight_pct": 4.62
+          "weight_pct": 4.51
         },
         {
           "ticker": "KLAC",
-          "weight_pct": 4.5
+          "weight_pct": 4.49
         },
         {
-          "ticker": "AMAT",
-          "weight_pct": 4.19
+          "ticker": "QCOM",
+          "weight_pct": 4.42
         },
         {
           "ticker": "MU",
-          "weight_pct": 4.18
+          "weight_pct": 4.32
         },
         {
-          "ticker": "LRCX",
-          "weight_pct": 3.77
+          "ticker": "AMAT",
+          "weight_pct": 4.17
         },
         {
           "ticker": "SKHY",
-          "weight_pct": 3.76
-        },
-        {
-          "ticker": "MRVL",
-          "weight_pct": 3.15
-        },
-        {
-          "ticker": "INTC",
-          "weight_pct": 3.13
-        },
-        {
-          "ticker": "CDNS",
-          "weight_pct": 2.49
-        },
-        {
-          "ticker": "SNPS",
-          "weight_pct": 2.47
-        },
-        {
-          "ticker": "MPWR",
-          "weight_pct": 1.54
-        },
-        {
-          "ticker": "NXPI",
-          "weight_pct": 1.53
-        },
-        {
-          "ticker": "STM",
-          "weight_pct": 1.02
-        },
-        {
-          "ticker": "TER",
-          "weight_pct": 0.98
-        },
-        {
-          "ticker": "ARM",
-          "weight_pct": 0.9
-        },
-        {
-          "ticker": "ALAB",
-          "weight_pct": 0.87
-        },
-        {
-          "ticker": "MCHP",
-          "weight_pct": 0.84
-        },
-        {
-          "ticker": "ON",
-          "weight_pct": 0.57
-        }
-      ],
-      "count": 25,
-      "total_weight_pct": 99.99
-    },
-    "SOXX": {
-      "source_url": "https://www.ishares.com/us/products/239705/ishares-semiconductor-etf/latest-holdings.csv",
-      "holdings_date": "2026-11-20",
-      "retrieved_at": "2026-11-24T05:30:57.985230+00:00",
-      "holdings": [
-        {
-          "ticker": "AMD",
-          "weight_pct": 9.9
-        },
-        {
-          "ticker": "AVGO",
-          "weight_pct": 9.03
-        },
-        {
-          "ticker": "MU",
-          "weight_pct": 6.81
-        },
-        {
-          "ticker": "INTC",
-          "weight_pct": 6.29
-        },
-        {
-          "ticker": "NVDA",
-          "weight_pct": 6.25
-        },
-        {
-          "ticker": "TXN",
-          "weight_pct": 5.55
-        },
-        {
-          "ticker": "ADI",
-          "weight_pct": 5.25
-        },
-        {
-          "ticker": "QCOM",
-          "weight_pct": 4.83
-        },
-        {
-          "ticker": "NXPI",
-          "weight_pct": 4.5
-        },
-        {
-          "ticker": "MPWR",
-          "weight_pct": 4.11
-        },
-        {
-          "ticker": "KLAC",
-          "weight_pct": 3.97
-        },
-        {
-          "ticker": "AMAT",
-          "weight_pct": 3.62
+          "weight_pct": 3.92
         },
         {
           "ticker": "LRCX",
-          "weight_pct": 3.34
+          "weight_pct": 3.74
+        },
+        {
+          "ticker": "MRVL",
+          "weight_pct": 3.24
+        },
+        {
+          "ticker": "INTC",
+          "weight_pct": 3.16
+        },
+        {
+          "ticker": "CDNS",
+          "weight_pct": 2.34
+        },
+        {
+          "ticker": "SNPS",
+          "weight_pct": 2.31
+        },
+        {
+          "ticker": "MPWR",
+          "weight_pct": 1.56
+        },
+        {
+          "ticker": "NXPI",
+          "weight_pct": 1.45
+        },
+        {
+          "ticker": "STM",
+          "weight_pct": 0.98
+        },
+        {
+          "ticker": "TER",
+          "weight_pct": 0.97
+        },
+        {
+          "ticker": "ALAB",
+          "weight_pct": 0.93
+        },
+        {
+          "ticker": "ARM",
+          "weight_pct": 0.91
+        },
+        {
+          "ticker": "MCHP",
+          "weight_pct": 0.81
+        },
+        {
+          "ticker": "ON",
+          "weight_pct": 0.55
+        }
+      ],
+      "count": 25,
+      "total_weight_pct": 100.0
+    },
+    "SOXX": {
+      "source_url": "https://www.ishares.com/us/products/239705/ishares-semiconductor-etf/latest-holdings.csv",
+      "holdings_date": "2026-11-23",
+      "retrieved_at": "2026-11-24T19:37:42.485317+00:00",
+      "holdings": [
+        {
+          "ticker": "AMD",
+          "weight_pct": 9.3
+        },
+        {
+          "ticker": "AVGO",
+          "weight_pct": 8.17
+        },
+        {
+          "ticker": "NVDA",
+          "weight_pct": 7.22
+        },
+        {
+          "ticker": "MU",
+          "weight_pct": 7.12
+        },
+        {
+          "ticker": "INTC",
+          "weight_pct": 6.43
+        },
+        {
+          "ticker": "TXN",
+          "weight_pct": 5.39
+        },
+        {
+          "ticker": "ADI",
+          "weight_pct": 5.05
+        },
+        {
+          "ticker": "QCOM",
+          "weight_pct": 4.68
+        },
+        {
+          "ticker": "NXPI",
+          "weight_pct": 4.3
+        },
+        {
+          "ticker": "MPWR",
+          "weight_pct": 4.22
+        },
+        {
+          "ticker": "KLAC",
+          "weight_pct": 4.01
+        },
+        {
+          "ticker": "AMAT",
+          "weight_pct": 3.65
+        },
+        {
+          "ticker": "LRCX",
+          "weight_pct": 3.36
+        },
+        {
+          "ticker": "MRVL",
+          "weight_pct": 3.3
         },
         {
           "ticker": "TSM",
           "weight_pct": 3.23
         },
         {
-          "ticker": "MRVL",
-          "weight_pct": 3.17
-        },
-        {
           "ticker": "SKHY",
-          "weight_pct": 2.64
+          "weight_pct": 2.79
         },
         {
           "ticker": "TER",
-          "weight_pct": 2.41
+          "weight_pct": 2.42
         },
         {
           "ticker": "MCHP",
-          "weight_pct": 2.25
+          "weight_pct": 2.18
         },
         {
           "ticker": "ALAB",
-          "weight_pct": 1.95
+          "weight_pct": 2.11
         },
         {
           "ticker": "ON",
-          "weight_pct": 1.8
+          "weight_pct": 1.73
         },
         {
           "ticker": "ASML",
-          "weight_pct": 1.57
+          "weight_pct": 1.51
         },
         {
           "ticker": "ENTG",
@@ -206,48 +206,48 @@
         },
         {
           "ticker": "CRDO",
-          "weight_pct": 1.28
+          "weight_pct": 1.38
         },
         {
           "ticker": "MTSI",
-          "weight_pct": 1.05
+          "weight_pct": 1.1
         },
         {
           "ticker": "TSEM",
-          "weight_pct": 0.92
+          "weight_pct": 0.96
         },
         {
           "ticker": "ASX",
-          "weight_pct": 0.81
+          "weight_pct": 0.86
         },
         {
           "ticker": "CBRS",
-          "weight_pct": 0.61
+          "weight_pct": 0.64
         },
         {
           "ticker": "UMC",
-          "weight_pct": 0.51
+          "weight_pct": 0.54
         },
         {
           "ticker": "STM",
-          "weight_pct": 0.47
+          "weight_pct": 0.46
         },
         {
           "ticker": "ARM",
-          "weight_pct": 0.4
+          "weight_pct": 0.41
         },
         {
           "ticker": "XTSLA",
-          "weight_pct": 0.05
+          "weight_pct": 0.06
         }
       ],
       "count": 31,
-      "total_weight_pct": 100.01
+      "total_weight_pct": 100.02
     },
     "ROBO": {
       "source_url": "https://www.roboglobaletfs.com/api/cms/holdings",
-      "holdings_date": "2026-11-20",
-      "retrieved_at": "2026-11-24T05:30:58.610700+00:00",
+      "holdings_date": "2026-11-23",
+      "retrieved_at": "2026-11-24T19:37:43.496787+00:00",
       "holdings": [
         {
           "ticker": "ISRG",
@@ -255,218 +255,226 @@
         },
         {
           "ticker": "PTC",
-          "weight_pct": 2.18
-        },
-        {
-          "ticker": "6954 JP",
-          "weight_pct": 1.84
+          "weight_pct": 2.09
         },
         {
           "ticker": "EMR",
-          "weight_pct": 1.8
-        },
-        {
-          "ticker": "G1A GR",
-          "weight_pct": 1.8
-        },
-        {
-          "ticker": "JBTM",
-          "weight_pct": 1.78
+          "weight_pct": 1.81
         },
         {
           "ticker": "ROK",
+          "weight_pct": 1.77
+        },
+        {
+          "ticker": "6954 JP",
+          "weight_pct": 1.76
+        },
+        {
+          "ticker": "JBTM",
+          "weight_pct": 1.76
+        },
+        {
+          "ticker": "G1A GR",
           "weight_pct": 1.75
         },
         {
           "ticker": "NDSN",
-          "weight_pct": 1.71
+          "weight_pct": 1.72
         },
         {
           "ticker": "HEXAB SS",
-          "weight_pct": 1.64
-        },
-        {
-          "ticker": "2317 TT",
-          "weight_pct": 1.6
-        },
-        {
-          "ticker": "6861 JP",
           "weight_pct": 1.59
         },
         {
-          "ticker": "6841 JP",
+          "ticker": "IPGP",
+          "weight_pct": 1.58
+        },
+        {
+          "ticker": "ILMN",
           "weight_pct": 1.58
         },
         {
           "ticker": "ATS CN",
-          "weight_pct": 1.55
+          "weight_pct": 1.57
+        },
+        {
+          "ticker": "CDNS",
+          "weight_pct": 1.56
         },
         {
           "ticker": "AMBA",
           "weight_pct": 1.55
         },
         {
-          "ticker": "ILMN",
-          "weight_pct": 1.55
-        },
-        {
-          "ticker": "IOT",
-          "weight_pct": 1.54
-        },
-        {
           "ticker": "AUTO NO",
-          "weight_pct": 1.54
-        },
-        {
-          "ticker": "1810 HK",
           "weight_pct": 1.53
         },
         {
-          "ticker": "KARN SW",
+          "ticker": "IOT",
           "weight_pct": 1.52
         },
         {
-          "ticker": "IPGP",
+          "ticker": "6861 JP",
+          "weight_pct": 1.52
+        },
+        {
+          "ticker": "2317 TT",
           "weight_pct": 1.51
         },
         {
-          "ticker": "CDNS",
+          "ticker": "QCOM",
+          "weight_pct": 1.51
+        },
+        {
+          "ticker": "6841 JP",
           "weight_pct": 1.5
         },
         {
-          "ticker": "6273 JP",
+          "ticker": "KARN SW",
           "weight_pct": 1.5
         },
         {
-          "ticker": "KRN GR",
-          "weight_pct": 1.47
+          "ticker": "JEN GR",
+          "weight_pct": 1.48
+        },
+        {
+          "ticker": "NOVT",
+          "weight_pct": 1.48
+        },
+        {
+          "ticker": "1810 HK",
+          "weight_pct": 1.46
         },
         {
           "ticker": "ADSK",
           "weight_pct": 1.46
         },
         {
-          "ticker": "NOVT",
-          "weight_pct": 1.45
-        },
-        {
-          "ticker": "DE",
-          "weight_pct": 1.43
-        },
-        {
-          "ticker": "QCOM",
-          "weight_pct": 1.43
-        },
-        {
-          "ticker": "ABBN SW",
-          "weight_pct": 1.41
-        },
-        {
-          "ticker": "OCTV",
-          "weight_pct": 1.4
+          "ticker": "SYM",
+          "weight_pct": 1.44
         },
         {
           "ticker": "XPEV",
+          "weight_pct": 1.44
+        },
+        {
+          "ticker": "KRN GR",
+          "weight_pct": 1.43
+        },
+        {
+          "ticker": "6273 JP",
+          "weight_pct": 1.43
+        },
+        {
+          "ticker": "DE",
+          "weight_pct": 1.42
+        },
+        {
+          "ticker": "TSLA",
+          "weight_pct": 1.42
+        },
+        {
+          "ticker": "OCTV",
+          "weight_pct": 1.41
+        },
+        {
+          "ticker": "ABBN SW",
+          "weight_pct": 1.4
+        },
+        {
+          "ticker": "RSW LN",
           "weight_pct": 1.4
         },
         {
           "ticker": "GMED",
-          "weight_pct": 1.39
-        },
-        {
-          "ticker": "RSW LN",
-          "weight_pct": 1.39
-        },
-        {
-          "ticker": "EKTAB SS",
-          "weight_pct": 1.39
-        },
-        {
-          "ticker": "JEN GR",
           "weight_pct": 1.38
         },
         {
           "ticker": "GXO",
-          "weight_pct": 1.34
-        },
-        {
-          "ticker": "SYM",
-          "weight_pct": 1.34
-        },
-        {
-          "ticker": "TSLA",
-          "weight_pct": 1.33
+          "weight_pct": 1.35
         },
         {
           "ticker": "TRMB",
+          "weight_pct": 1.33
+        },
+        {
+          "ticker": "EKTAB SS",
+          "weight_pct": 1.33
+        },
+        {
+          "ticker": "MCHP",
+          "weight_pct": 1.32
+        },
+        {
+          "ticker": "IFX GR",
           "weight_pct": 1.31
         },
         {
           "ticker": "6383 JP",
-          "weight_pct": 1.31
-        },
-        {
-          "ticker": "IFX GR",
-          "weight_pct": 1.29
-        },
-        {
-          "ticker": "6324 JP",
-          "weight_pct": 1.27
-        },
-        {
-          "ticker": "6503 JP",
-          "weight_pct": 1.26
+          "weight_pct": 1.25
         },
         {
           "ticker": "2395 TT",
-          "weight_pct": 1.26
-        },
-        {
-          "ticker": "6506 JP",
-          "weight_pct": 1.24
-        },
-        {
-          "ticker": "MCHP",
-          "weight_pct": 1.24
-        },
-        {
-          "ticker": "KALMAR FH",
-          "weight_pct": 1.24
-        },
-        {
-          "ticker": "SU FP",
-          "weight_pct": 1.24
-        },
-        {
-          "ticker": "SIE GR",
-          "weight_pct": 1.23
+          "weight_pct": 1.25
         },
         {
           "ticker": "CLS CN",
-          "weight_pct": 1.22
+          "weight_pct": 1.24
         },
         {
           "ticker": "ZBRA",
-          "weight_pct": 1.22
-        },
-        {
-          "ticker": "1590 TT",
-          "weight_pct": 1.21
+          "weight_pct": 1.24
         },
         {
           "ticker": "2049 TT",
+          "weight_pct": 1.23
+        },
+        {
+          "ticker": "SU FP",
+          "weight_pct": 1.22
+        },
+        {
+          "ticker": "SIE GR",
+          "weight_pct": 1.22
+        },
+        {
+          "ticker": "KALMAR FH",
+          "weight_pct": 1.22
+        },
+        {
+          "ticker": "TER",
+          "weight_pct": 1.21
+        },
+        {
+          "ticker": "6324 JP",
+          "weight_pct": 1.21
+        },
+        {
+          "ticker": "6503 JP",
+          "weight_pct": 1.2
+        },
+        {
+          "ticker": "6506 JP",
+          "weight_pct": 1.19
+        },
+        {
+          "ticker": "1590 TT",
           "weight_pct": 1.17
         },
         {
-          "ticker": "DUE GR",
+          "ticker": "CGNX",
           "weight_pct": 1.16
         },
         {
-          "ticker": "098460 KS",
+          "ticker": "OUST",
           "weight_pct": 1.14
         },
         {
-          "ticker": "6134 JP",
+          "ticker": "DUE GR",
+          "weight_pct": 1.13
+        },
+        {
+          "ticker": "COHR",
           "weight_pct": 1.13
         },
         {
@@ -474,36 +482,28 @@
           "weight_pct": 1.13
         },
         {
+          "ticker": "098460 KS",
+          "weight_pct": 1.1
+        },
+        {
+          "ticker": "NVDA",
+          "weight_pct": 1.1
+        },
+        {
+          "ticker": "6134 JP",
+          "weight_pct": 1.08
+        },
+        {
           "ticker": "6645 JP",
-          "weight_pct": 1.12
+          "weight_pct": 1.06
         },
         {
           "ticker": "6268 JP",
-          "weight_pct": 1.12
-        },
-        {
-          "ticker": "TER",
-          "weight_pct": 1.11
-        },
-        {
-          "ticker": "CGNX",
-          "weight_pct": 1.11
-        },
-        {
-          "ticker": "3443 TT",
-          "weight_pct": 1.05
+          "weight_pct": 1.06
         },
         {
           "ticker": "6481 JP",
-          "weight_pct": 1.04
-        },
-        {
-          "ticker": "COHR",
-          "weight_pct": 1.02
-        },
-        {
-          "ticker": "OUST",
-          "weight_pct": 1.01
+          "weight_pct": 0.99
         },
         {
           "ticker": "SHA0 GR",
@@ -511,19 +511,23 @@
         },
         {
           "ticker": "ONDS",
-          "weight_pct": 0.93
+          "weight_pct": 0.96
         },
         {
-          "ticker": "6622 JP",
-          "weight_pct": 0.92
+          "ticker": "3443 TT",
+          "weight_pct": 0.96
         },
         {
           "ticker": "JOBY",
-          "weight_pct": 0.89
+          "weight_pct": 0.92
         },
         {
-          "ticker": "NVDA",
-          "weight_pct": 0.87
+          "ticker": "6622 JP",
+          "weight_pct": 0.88
+        },
+        {
+          "ticker": "2308 TT",
+          "weight_pct": 0.79
         },
         {
           "ticker": "KGX GR",
@@ -531,30 +535,26 @@
         },
         {
           "ticker": "6914 JP",
-          "weight_pct": 0.75
-        },
-        {
-          "ticker": "2308 TT",
-          "weight_pct": 0.74
+          "weight_pct": 0.71
         },
         {
           "ticker": "9984 JP",
-          "weight_pct": 0.7
+          "weight_pct": 0.67
         },
         {
           "ticker": "RPI LN",
-          "weight_pct": 0.64
+          "weight_pct": 0.66
         },
         {
           "ticker": "SSYS",
-          "weight_pct": 0.46
-        },
-        {
-          "ticker": "300124 C2",
-          "weight_pct": 0.39
+          "weight_pct": 0.47
         },
         {
           "ticker": "002747 C2",
+          "weight_pct": 0.41
+        },
+        {
+          "ticker": "300124 C2",
           "weight_pct": 0.39
         },
         {
@@ -563,11 +563,11 @@
         },
         {
           "ticker": "SERV",
-          "weight_pct": 0.23
+          "weight_pct": 0.25
         }
       ],
       "count": 79,
-      "total_weight_pct": 99.7
+      "total_weight_pct": 99.74
     }
   },
   "errors": {}
