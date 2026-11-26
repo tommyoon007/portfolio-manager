@@ -1,11 +1,11 @@
 {
-  "updated_at": "2026-11-25T18:44:39.569007+00:00",
+  "updated_at": "2026-11-26T18:33:01.070601+00:00",
   "source": "Official VanEck/iShares/ROBO Global holdings downloads",
   "data": {
     "SMH": {
       "source_url": "https://www.vaneck.com/us/en/investments/semiconductor-etf-smh/downloads/holdings/",
       "holdings_date": "2026-11-24",
-      "retrieved_at": "2026-11-25T18:44:37.251801+00:00",
+      "retrieved_at": "2026-11-26T18:32:58.461648+00:00",
       "holdings": [
         {
           "ticker": "NVDA",
@@ -113,72 +113,72 @@
     },
     "SOXX": {
       "source_url": "https://www.ishares.com/us/products/239705/ishares-semiconductor-etf/latest-holdings.csv",
-      "holdings_date": "2026-11-24",
-      "retrieved_at": "2026-11-25T18:44:38.662054+00:00",
+      "holdings_date": "2026-11-25",
+      "retrieved_at": "2026-11-26T18:33:00.090291+00:00",
       "holdings": [
         {
           "ticker": "AMD",
-          "weight_pct": 9.24
+          "weight_pct": 9.12
         },
         {
           "ticker": "AVGO",
-          "weight_pct": 8.56
+          "weight_pct": 8.59
         },
         {
           "ticker": "NVDA",
-          "weight_pct": 7.41
+          "weight_pct": 7.15
         },
         {
           "ticker": "MU",
-          "weight_pct": 6.91
+          "weight_pct": 6.63
         },
         {
           "ticker": "INTC",
-          "weight_pct": 6.44
+          "weight_pct": 6.43
         },
         {
           "ticker": "TXN",
-          "weight_pct": 5.21
+          "weight_pct": 5.48
         },
         {
           "ticker": "QCOM",
-          "weight_pct": 5.09
+          "weight_pct": 5.23
         },
         {
           "ticker": "ADI",
-          "weight_pct": 4.55
+          "weight_pct": 4.86
         },
         {
           "ticker": "NXPI",
-          "weight_pct": 4.5
+          "weight_pct": 4.57
         },
         {
           "ticker": "MPWR",
-          "weight_pct": 4.11
+          "weight_pct": 4.14
         },
         {
           "ticker": "KLAC",
-          "weight_pct": 4.01
+          "weight_pct": 4.05
         },
         {
           "ticker": "AMAT",
-          "weight_pct": 3.72
-        },
-        {
-          "ticker": "LRCX",
-          "weight_pct": 3.42
+          "weight_pct": 3.59
         },
         {
           "ticker": "TSM",
-          "weight_pct": 3.39
+          "weight_pct": 3.34
         },
         {
           "ticker": "MRVL",
           "weight_pct": 3.27
         },
         {
+          "ticker": "LRCX",
+          "weight_pct": 3.24
+        },
+        {
           "ticker": "SKHY",
-          "weight_pct": 2.74
+          "weight_pct": 2.73
         },
         {
           "ticker": "TER",
@@ -186,7 +186,7 @@
         },
         {
           "ticker": "MCHP",
-          "weight_pct": 2.19
+          "weight_pct": 2.25
         },
         {
           "ticker": "ALAB",
@@ -194,19 +194,19 @@
         },
         {
           "ticker": "ON",
-          "weight_pct": 1.74
+          "weight_pct": 1.78
         },
         {
           "ticker": "ASML",
-          "weight_pct": 1.59
+          "weight_pct": 1.55
         },
         {
           "ticker": "ENTG",
-          "weight_pct": 1.41
+          "weight_pct": 1.43
         },
         {
           "ticker": "CRDO",
-          "weight_pct": 1.31
+          "weight_pct": 1.32
         },
         {
           "ticker": "MTSI",
@@ -214,19 +214,19 @@
         },
         {
           "ticker": "TSEM",
-          "weight_pct": 0.94
+          "weight_pct": 0.93
         },
         {
           "ticker": "ASX",
-          "weight_pct": 0.87
+          "weight_pct": 0.88
         },
         {
           "ticker": "CBRS",
-          "weight_pct": 0.63
+          "weight_pct": 0.64
         },
         {
           "ticker": "UMC",
-          "weight_pct": 0.55
+          "weight_pct": 0.54
         },
         {
           "ticker": "STM",
@@ -246,12 +246,12 @@
         }
       ],
       "count": 32,
-      "total_weight_pct": 100.16
+      "total_weight_pct": 100.1
     },
     "ROBO": {
       "source_url": "https://www.roboglobaletfs.com/api/cms/holdings",
       "holdings_date": "2026-11-24",
-      "retrieved_at": "2026-11-25T18:44:39.568986+00:00",
+      "retrieved_at": "2026-11-26T18:33:01.070581+00:00",
       "holdings": [
         {
           "ticker": "ISRG",
